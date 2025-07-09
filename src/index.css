@@ -1,0 +1,108 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    font-family: 'Zilla Slab', serif;
+    line-height: 1.6;
+    font-weight: 400;
+    color-scheme: dark;
+    font-synthesis: none;
+    text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  body {
+    margin: 0;
+    padding: 0;
+    min-height: 100vh;
+    background-color: #282828; /* gruvbox.bg */
+    color: #ebdbb2; /* gruvbox.fg1 */
+  }
+
+  #root {
+    min-height: 100vh;
+    width: 100%;
+  }
+
+  /* Scrollbar styling */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: #3c3836; /* gruvbox.bg1 */
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: #665c54; /* gruvbox.bg3 */
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: #7c6f64; /* gruvbox.bg4 */
+  }
+
+  /* Focus ring styling */
+  :focus-visible {
+    outline: 2px solid #83a598; /* gruvbox.blue-bright */
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply px-4 py-2 rounded-md font-medium transition-colors duration-200;
+    @apply focus:outline-none focus:ring-2 focus:ring-offset-2;
+  }
+
+  .btn-primary {
+    @apply bg-primary text-text hover:bg-primary-hover;
+    @apply focus:ring-primary-hover;
+  }
+
+  .btn-secondary {
+    @apply bg-secondary text-text hover:bg-secondary-hover;
+    @apply focus:ring-secondary-hover;
+  }
+
+  .btn-accent {
+    @apply bg-accent text-background hover:bg-accent-hover;
+    @apply focus:ring-accent-hover;
+  }
+
+  .btn-danger {
+    @apply bg-danger text-text hover:bg-danger-hover;
+    @apply focus:ring-danger-hover;
+  }
+
+  .input {
+    @apply px-3 py-2 bg-surface border border-border rounded-md;
+    @apply text-text placeholder-text-dim;
+    @apply focus:outline-none focus:ring-2 focus:ring-primary focus:border-primary;
+  }
+
+  .card {
+    @apply bg-surface border border-border rounded-lg p-4;
+  }
+
+  .panel {
+    @apply bg-background border border-border rounded-lg;
+  }
+
+  .tab {
+    @apply px-4 py-2 text-text-dim hover:text-text border-b-2 border-transparent;
+    @apply hover:border-border transition-colors duration-200;
+  }
+
+  .tab-active {
+    @apply text-text-bright border-accent;
+  }
+}
