@@ -10,7 +10,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '~': resolve(__dirname, './src'),
-      '@flux': resolve(__dirname, 'node_modules/flux-game/dist/index.js'),
+      '@flux': resolve(__dirname, './src/types/domain.ts'),
     }
   },
   optimizeDeps: {

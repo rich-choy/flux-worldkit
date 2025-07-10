@@ -10,8 +10,7 @@ export const ViewTabs: React.FC<ViewTabsProps> = ({ currentView, onViewChange })
   const tabs: { id: ViewType; label: string; icon: string }[] = [
     { id: 'spatial', label: 'Spatial', icon: '🗺️' },
     { id: 'network', label: 'Network', icon: '🕸️' },
-    { id: 'analysis', label: 'Analysis', icon: '📊' },
-    { id: 'detail', label: 'Detail', icon: '🔍' }
+    { id: 'analysis', label: 'Analysis', icon: '📊' }
   ]
 
   return (

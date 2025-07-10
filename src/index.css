@@ -3,23 +3,23 @@
 @tailwind utilities;
 
 @layer base {
-  :root {
+:root {
     font-family: 'Zilla Slab', serif;
     line-height: 1.6;
-    font-weight: 400;
+  font-weight: 400;
     color-scheme: dark;
-    font-synthesis: none;
-    text-rendering: optimizeLegibility;
-    -webkit-font-smoothing: antialiased;
-    -moz-osx-font-smoothing: grayscale;
-  }
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
 
   * {
     box-sizing: border-box;
-  }
+}
 
-  body {
-    margin: 0;
+body {
+  margin: 0;
     padding: 0;
     min-height: 100vh;
     background-color: #282828; /* gruvbox.bg */
@@ -27,7 +27,7 @@
   }
 
   #root {
-    min-height: 100vh;
+  min-height: 100vh;
     width: 100%;
   }
 
@@ -35,7 +35,7 @@
   ::-webkit-scrollbar {
     width: 8px;
     height: 8px;
-  }
+}
 
   ::-webkit-scrollbar-track {
     background: #3c3836; /* gruvbox.bg1 */
@@ -76,7 +76,7 @@
   .btn-accent {
     @apply bg-accent text-background hover:bg-accent-hover;
     @apply focus:ring-accent-hover;
-  }
+}
 
   .btn-danger {
     @apply bg-danger text-text hover:bg-danger-hover;
@@ -95,7 +95,7 @@
 
   .panel {
     @apply bg-background border border-border rounded-lg;
-  }
+}
 
   .tab {
     @apply px-4 py-2 text-text-dim hover:text-text border-b-2 border-transparent;
@@ -104,5 +104,25 @@
 
   .tab-active {
     @apply text-text-bright border-accent;
+  }
+
+  .app-container {
+    @apply h-screen bg-background text-text relative overflow-hidden;
+  }
+
+  .main-content {
+    @apply absolute inset-0;
+  }
+
+  .view-container {
+    @apply w-full h-full;
+  }
+
+  .spatial-view {
+    @apply w-full h-full;
+  }
+
+  .canvas-container {
+    @apply w-full h-full;
   }
 }

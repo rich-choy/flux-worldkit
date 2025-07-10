@@ -1,16 +1,18 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import type { GeneratedWorld, GAEAPlace, WorldGenerationConfig } from '@flux'
 
 // Import components
 import { SpatialView } from './components/SpatialView'
 import { NetworkView } from './components/NetworkView'
 import { AnalysisView } from './components/AnalysisView'
-import { DetailView } from './components/DetailView'
 import { ViewTabs } from './components/ViewTabs'
 import { LoadingSpinner } from './components/LoadingSpinner'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
-export type ViewType = 'spatial' | 'network' | 'analysis' | 'detail'
+// Import task scheduler
+import { scheduleWorldGeneration, taskScheduler } from '~/lib/task-scheduler'
+
+export type ViewType = 'spatial' | 'network' | 'analysis'
 
 interface AppState {
   currentWorld: GeneratedWorld | null
@@ -22,33 +24,60 @@ interface AppState {
 
 const DEFAULT_CONFIG: WorldGenerationConfig = {
   topology: {
-    central_plateau: {
+    central_crater: {
       center: [0, 0],
       radius: 6.4,
-      elevation: 2000
+      elevation: -200
     },
     mountain_ring: {
       inner_radius: 6.4,
       outer_radius: 10.2,
-      elevation_range: [2500, 4000]
+      elevation_range: [1200, 2000]
     },
     ecosystem_slices: {
       slice_count: 3,
       outer_radius: 25.6,
-      elevation_range: [500, 1500]
+      elevation_range: [300, 1000]
     }
   },
   ecosystem_distribution: {
-    'flux:eco:forest:temperate': 0.40,
-    'flux:eco:grassland:temperate': 0.30,
-    'flux:eco:grassland:arid': 0.05,
-    'flux:eco:mountain:alpine': 0.15,
-    'flux:eco:mountain:forest': 0.10
-  },
+    'flux:eco:forest:coniferous': 0.40,
+    'flux:eco:grassland:subtropical': 0.30,
+    'flux:eco:wetland:tropical': 0.05,
+    'flux:eco:forest:montane': 0.15,
+    'flux:eco:mountain:alpine': 0.10,
+    'flux:eco:marsh:tropical': 0.00
+  } as any, // Temporary any cast to avoid TypeScript config mismatch
   gaea_intensity: 0.7,
   fungal_spread_factor: 0.6,
   worshipper_density: 0.5,
-  place_density: 0.004,
+  place_density: 5.0,
+  connectivity: {
+    max_exits_per_place: 6,
+    connection_distance_factor: 1.5,
+    connection_density: 1.0,
+    prefer_same_zone: true,
+    ecosystem_edge_targets: {
+      'flux:eco:forest:coniferous': 1.8,
+      'flux:eco:grassland:subtropical': 3.2,
+      'flux:eco:wetland:tropical': 2.2,
+      'flux:eco:forest:montane': 1.4,
+      'flux:eco:mountain:alpine': 1.0,
+      'flux:eco:marsh:tropical': 2.8,
+    },
+    boundary_detection_threshold: 0.05,
+    fractal_trails: {
+      enabled: true,
+      trail_count: 3,
+      branching_factor: 2.0,
+      branching_angle: Math.PI / 3, // 60 degrees
+      max_depth: 4,
+      segment_length: 3.0,
+      length_variation: 0.4,
+      trail_width: 2.0,
+      decay_factor: 0.7
+    }
+  },
   random_seed: 42
 }
 
@@ -61,12 +90,17 @@ function App() {
     config: DEFAULT_CONFIG
   })
 
+  // Track current generation task to enable cancellation
+  const currentTaskId = useRef<string | null>(null)
+
   // Load default config on mount
   useEffect(() => {
     const loadDefaultConfig = async () => {
       try {
-        const { getDefaultWorldConfig } = await import('~/lib/flux-wrapper')
+        const { getDefaultWorldConfig } = await import('@flux')
         const defaultConfig = await getDefaultWorldConfig()
+        console.log('Loaded default config:', defaultConfig)
+        console.log('Default config ecosystems:', Object.keys(defaultConfig.ecosystem_distribution))
         setState(prev => ({ ...prev, config: defaultConfig }))
       } catch (error) {
         console.error('Failed to load default config:', error)
@@ -75,38 +109,61 @@ function App() {
     loadDefaultConfig()
   }, [])
 
-  // Generate initial world
+  // Cleanup on unmount
   useEffect(() => {
-    handleGenerateWorld()
+    return () => {
+      if (currentTaskId.current) {
+        taskScheduler.cancelTask(currentTaskId.current)
+      }
+    }
   }, [])
 
-  const handleGenerateWorld = async () => {
+  const handleGenerateWorld = useCallback(() => {
+    // Cancel any existing task
+    if (currentTaskId.current) {
+      taskScheduler.cancelTask(currentTaskId.current)
+    }
+
     setState(prev => ({ ...prev, isLoading: true, selectedPlace: null }))
 
-    try {
-      // Use setTimeout to allow UI to update
-      await new Promise(resolve => setTimeout(resolve, 100))
+    // Schedule world generation with Priority Task Scheduling API
+    currentTaskId.current = scheduleWorldGeneration(state.config, {
+      priority: 'user-visible', // User-initiated action, should be visible priority
+      onSuccess: (world: GeneratedWorld) => {
+        console.log('World generation completed:', {
+          placesGenerated: world.places.length,
+          configDensity: state.config.place_density,
+          expectedPlaces: Math.round(state.config.place_density * 250000),
+          hasTrailNetwork: !!world.trail_network,
+          trailSystemCount: world.trail_network?.trailSystems.length || 0
+        })
 
-      // Use our ESM wrapper
-      const { generateWorld } = await import('~/lib/flux-wrapper')
-      const world = await generateWorld(state.config)
+        setState(prev => ({
+          ...prev,
+          currentWorld: world,
+          isLoading: false
+        }))
 
-      setState(prev => ({
-        ...prev,
-        currentWorld: world,
-        isLoading: false
-      }))
-    } catch (error) {
-      console.error('Error generating world:', error)
-      setState(prev => ({ ...prev, isLoading: false }))
-    }
-  }
+        currentTaskId.current = null
+      },
+      onError: (error: string) => {
+        console.error('World generation error:', error)
+        setState(prev => ({ ...prev, isLoading: false }))
+        currentTaskId.current = null
+      }
+    })
+  }, [state.config])
 
   const handleConfigChange = (newConfig: Partial<WorldGenerationConfig>) => {
-    setState(prev => ({
-      ...prev,
-      config: { ...prev.config, ...newConfig }
-    }))
+    console.log('Config change:', newConfig)
+    setState(prev => {
+      const updatedConfig = { ...prev.config, ...newConfig }
+      console.log('Updated config:', updatedConfig)
+      return {
+        ...prev,
+        config: updatedConfig
+      }
+    })
   }
 
   const handleViewChange = (view: ViewType) => {
@@ -155,17 +212,6 @@ function App() {
       return <LoadingSpinner />
     }
 
-    if (!state.currentWorld) {
-      return (
-        <div className="flex items-center justify-center h-full">
-          <div className="text-center">
-            <h3 className="text-xl font-semibold text-text-dim mb-2">No world generated</h3>
-            <p className="text-text-dim">Click "Generate New World" to create a world</p>
-          </div>
-        </div>
-      )
-    }
-
     switch (state.currentView) {
       case 'spatial':
         return (
@@ -182,17 +228,31 @@ function App() {
           />
         )
       case 'network':
-        return (
+        return state.currentWorld ? (
           <NetworkView
             world={state.currentWorld}
             selectedPlace={state.selectedPlace}
             onPlaceSelect={handlePlaceSelect}
           />
+        ) : (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <h3 className="text-xl font-semibold text-text-dim mb-2">No world generated</h3>
+              <p className="text-text-dim">Click "Generate New World" to create a world</p>
+            </div>
+          </div>
         )
       case 'analysis':
-        return <AnalysisView world={state.currentWorld} />
-      case 'detail':
-        return <DetailView selectedPlace={state.selectedPlace} />
+        return state.currentWorld ? (
+          <AnalysisView world={state.currentWorld} />
+        ) : (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <h3 className="text-xl font-semibold text-text-dim mb-2">No world generated</h3>
+              <p className="text-text-dim">Click "Generate New World" to create a world</p>
+            </div>
+          </div>
+        )
       default:
         return (
           <div className="flex items-center justify-center h-full">
@@ -206,28 +266,17 @@ function App() {
 
   return (
     <ErrorBoundary>
-      <div className="h-screen bg-background text-text relative overflow-hidden">
-        {/* Full-screen visualization */}
-        <div className="absolute inset-0">
-          {renderCurrentView()}
-        </div>
-
-        {/* Floating view tabs */}
-        <div className="absolute top-4 right-4 z-20">
-          <ViewTabs
-            currentView={state.currentView}
-            onViewChange={handleViewChange}
-          />
-        </div>
-
-        {/* Detail panel for selected place */}
-        {state.selectedPlace && state.currentView !== 'detail' && (
-          <div className="absolute bottom-4 right-4 z-20 max-w-sm">
-            <div className="bg-surface/90 backdrop-blur-sm border border-border rounded-lg p-4">
-              <DetailView selectedPlace={state.selectedPlace} />
-            </div>
+      <div className="app-container">
+        <div className="main-content">
+          <div className="view-container">
+            {renderCurrentView()}
           </div>
-        )}
+        </div>
+
+        {/* View Tabs - positioned in top-right corner */}
+        <div className="absolute top-4 right-4 z-20">
+          <ViewTabs currentView={state.currentView} onViewChange={handleViewChange} />
+      </div>
       </div>
     </ErrorBoundary>
   )

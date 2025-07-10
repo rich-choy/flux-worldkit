@@ -1,13 +1,13 @@
 // Utility functions for parsing ecosystem URNs and taxonomic atoms
 
 export interface TaxonomicAtoms {
-  biome: string;        // e.g., "forest", "grassland", "mountain"
-  climate: string;      // e.g., "temperate", "alpine", "arid"
+  biome: string;        // e.g., "forest", "grassland", "mountain", "wetland"
+  climate: string;      // e.g., "temperate", "forest"
 }
 
 /**
  * Parse ecosystem URN to extract biome and climate atoms
- * flux:eco:forest:alpine -> { biome: "forest", climate: "alpine" }
+ * flux:eco:forest:temperate -> { biome: "forest", climate: "temperate" }
  */
 export function parseEcosystemURN(ecosystem: string): TaxonomicAtoms | null {
   const parts = ecosystem.split(':');
@@ -60,13 +60,16 @@ export const BiomeColors = {
   forest: '#228B22',      // Forest green
   grassland: '#9ACD32',   // Yellow green
   mountain: '#8B4513',    // Saddle brown
+  wetland: '#20B2AA',     // Light sea green
 } as const;
 
 export const ClimateColors = {
-  temperate: '#4169E1',   // Royal blue
-  alpine: '#9370DB',      // Medium purple
-  arid: '#FF8C00',        // Dark orange
-  forest: '#006400',      // Dark green (for mountain:forest)
+  subtropical: '#FFB347',  // Peach for subtropical warmth
+  tropical: '#FF6347',     // Tomato red for tropical heat
+  forest: '#006400',       // Dark green (for mountain:forest)
+  montane: '#8B4513',      // Saddle brown for montane
+  alpine: '#A0522D',       // Sienna for alpine
+  coniferous: '#228B22',   // Forest green for coniferous
 } as const;
 
 /**
@@ -75,6 +78,13 @@ export const ClimateColors = {
 export function getBiomeColor(ecosystem: string): string {
   const atoms = parseEcosystemURN(ecosystem);
   if (!atoms) return '#666';
+
+
+
+  // Special case: mountain:forest should be a darker, richer green (dangerous central sanctuary)
+  if (atoms.biome === 'mountain' && atoms.climate === 'forest') {
+    return '#006400'; // Dark green - represents the perilous central plateau
+  }
 
   return BiomeColors[atoms.biome as keyof typeof BiomeColors] || '#666';
 }
@@ -94,11 +104,13 @@ export function getClimateColor(ecosystem: string): string {
  */
 export function getEcosystemColor(ecosystem: string): string {
   const ecosystemColors: Record<string, string> = {
-    'flux:eco:mountain:alpine': '#8B4513',
     'flux:eco:mountain:forest': '#228B22',
-    'flux:eco:forest:temperate': '#32CD32',
-    'flux:eco:grassland:temperate': '#9ACD32',
-    'flux:eco:grassland:arid': '#F0E68C'
+    'flux:eco:forest:coniferous': '#228B22',
+    'flux:eco:forest:montane': '#32CD32',
+    'flux:eco:mountain:alpine': '#8B4513',
+    'flux:eco:grassland:subtropical': '#9ACD32',
+    'flux:eco:wetland:tropical': '#20B2AA',
+    'flux:eco:marsh:tropical': '#FF6347'
   };
 
   return ecosystemColors[ecosystem] || '#666';

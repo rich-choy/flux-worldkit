@@ -10,7 +10,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "flux-game": "file:../game",
+    "flux-game": "file:~/var/flux/game",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
