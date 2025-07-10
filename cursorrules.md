@@ -41,6 +41,7 @@ We need to build a React-based visualization interface for the sophisticated Lic
 - Connect the React UI to the existing `flux-game` world generation system (exposed as `@flux`)
 - Use the sophisticated multi-ecosystem Lichtenberg fractal generation described in worldgen.md
 - Maintain the performance-first, functional programming approach established in the codebase
+- **Web Worker Architecture**: World generation must execute in a web worker to prevent blocking the main thread during computation
 
 ## Current Focus
 - Implementing the complete worldgen visualization interface with ecosystem band backgrounds and place graph overlay
