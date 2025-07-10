@@ -7,12 +7,16 @@ export default defineConfig({
   plugins: [
     react()
   ],
+  worker: {
+    format: 'es'
+  },
   resolve: {
     alias: {
       '~': resolve(__dirname, './src'),
       '@flux': resolve(__dirname, './src/types/domain.ts'),
     }
   },
+  assetsInclude: ['**/*.ttf'],
   optimizeDeps: {
     include: ['flux-game'],
     force: true

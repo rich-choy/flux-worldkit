@@ -1,0 +1,225 @@
+import React, { useEffect, useState } from 'react'
+import type { WorldGenerationResult } from '@flux'
+import type { ViewMode } from '~/App'
+import { Canvas } from './Canvas'
+
+interface ViewportProps {
+  world: WorldGenerationResult | null
+  viewMode: ViewMode
+  onViewModeChange: (mode: ViewMode) => void
+}
+
+export const Viewport: React.FC<ViewportProps> = ({
+  world,
+  viewMode,
+  onViewModeChange
+}) => {
+  return (
+    <div className="h-full bg-background">
+      {/* Main Content Area */}
+      <div className="h-full">
+        {viewMode === 'graph' ? (
+          <GraphView world={world} />
+        ) : (
+          <AnalysisView world={world} />
+        )}
+      </div>
+    </div>
+  )
+}
+
+interface GraphViewProps {
+  world: WorldGenerationResult | null
+}
+
+const GraphView: React.FC<GraphViewProps> = ({ world }) => {
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
+
+  useEffect(() => {
+    const updateDimensions = () => {
+      // Get viewport dimensions minus the menu bars
+      const viewportWidth = window.innerWidth
+      const viewportHeight = window.innerHeight
+
+            // Account for menu bar and button bar heights (approximate)
+      const menuBarHeight = 80 // Top menu bar
+      const buttonBarHeight = 60 // Graph/Analysis buttons
+
+      const availableWidth = viewportWidth
+      const availableHeight = viewportHeight - menuBarHeight - buttonBarHeight
+
+      setDimensions({
+        width: Math.max(availableWidth, 400), // Minimum width
+        height: Math.max(availableHeight, 300) // Minimum height
+      })
+    }
+
+    updateDimensions()
+    window.addEventListener('resize', updateDimensions)
+    return () => window.removeEventListener('resize', updateDimensions)
+  }, [])
+
+  return (
+    <div className="h-full w-full flex items-start justify-start">
+      <Canvas
+        world={world}
+        width={dimensions.width}
+        height={dimensions.height}
+      />
+      {!world && (
+        <div className="absolute inset-0 flex items-center justify-center">
+          <div className="text-center">
+            <h3 className="text-xl font-semibold text-text-bright mb-2">
+              No World Generated
+            </h3>
+            <p className="text-text-dim">
+              Use the menu above to generate a world and see it visualized here
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+interface AnalysisViewProps {
+  world: WorldGenerationResult | null
+}
+
+const AnalysisView: React.FC<AnalysisViewProps> = ({ world }) => {
+  if (!world) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <div className="text-center">
+          <h3 className="text-xl font-semibold text-text-bright mb-2">
+            No Analysis Available
+          </h3>
+          <p className="text-text-dim">
+            Generate a world to see detailed analysis
+          </p>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="h-full p-6 overflow-y-auto">
+      <div className="max-w-4xl mx-auto space-y-6">
+        <div className="card">
+          <h3 className="text-lg font-semibold text-text-bright mb-4">
+            Input Parameters
+          </h3>
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <span className="text-text-dim">Min Places:</span>
+              <span className="ml-2 text-text">{world.config.minPlaces}</span>
+            </div>
+            <div>
+              <span className="text-text-dim">Max Places:</span>
+              <span className="ml-2 text-text">{world.config.maxPlaces || 'N/A'}</span>
+            </div>
+            <div>
+              <span className="text-text-dim">Aspect Ratio:</span>
+              <span className="ml-2 text-text">{world.config.worldAspectRatio}</span>
+            </div>
+            <div>
+              <span className="text-text-dim">Min Vertices:</span>
+              <span className="ml-2 text-text">{world.config.lichtenberg.minVertices}</span>
+            </div>
+          </div>
+        </div>
+
+        <div className="card">
+          <h3 className="text-lg font-semibold text-text-bright mb-4">
+            Generation Results
+          </h3>
+          <div className="grid grid-cols-2 gap-4 text-sm">
+            <div>
+              <span className="text-text-dim">Total Places:</span>
+              <span className="ml-2 text-text">{world.places.length}</span>
+            </div>
+            <div>
+              <span className="text-text-dim">Total Connections:</span>
+              <span className="ml-2 text-text">{world.connections.total}</span>
+            </div>
+            <div>
+              <span className="text-text-dim">Reciprocal Connections:</span>
+              <span className="ml-2 text-text">{world.connections.reciprocal}</span>
+            </div>
+            <div>
+              <span className="text-text-dim">Avg Connections/Place:</span>
+              <span className="ml-2 text-text">
+                {world.places.length > 0 ? (world.connections.total / world.places.length).toFixed(2) : '0'}
+              </span>
+            </div>
+          </div>
+        </div>
+
+        <div className="card">
+          <h3 className="text-lg font-semibold text-text-bright mb-4">
+            Ecosystem Distribution
+          </h3>
+          <div className="space-y-2 text-sm">
+            {(() => {
+              // Calculate ecosystem distribution
+              const ecosystemCounts = world.places.reduce((acc, place) => {
+                const ecosystem = place.ecology.ecosystem
+                acc[ecosystem] = (acc[ecosystem] || 0) + 1
+                return acc
+              }, {} as Record<string, number>)
+
+              const totalPlaces = world.places.length
+
+              return Object.entries(ecosystemCounts).map(([ecosystem, count]) => {
+                const percentage = ((count / totalPlaces) * 100).toFixed(1)
+                const ecosystemName = ecosystem.split(':').pop()?.replace(/([a-z])([A-Z])/g, '$1 $2') || ecosystem
+
+                return (
+                  <div key={ecosystem} className="flex justify-between">
+                    <span className="text-text-dim capitalize">{ecosystemName}:</span>
+                    <span className="text-text">{count} places ({percentage}%)</span>
+                  </div>
+                )
+              });
+            })()}
+          </div>
+        </div>
+
+        <div className="card">
+          <h3 className="text-lg font-semibold text-text-bright mb-4">
+            Connection Analysis
+          </h3>
+          <div className="space-y-2 text-sm">
+            {(() => {
+              // Calculate connections per ecosystem
+              const ecosystemConnections = world.places.reduce((acc, place) => {
+                const ecosystem = place.ecology.ecosystem
+                const exitCount = Object.keys(place.exits || {}).length
+
+                if (!acc[ecosystem]) {
+                  acc[ecosystem] = { total: 0, places: 0 }
+                }
+                acc[ecosystem].total += exitCount
+                acc[ecosystem].places += 1
+
+                return acc
+              }, {} as Record<string, { total: number; places: number }>)
+
+              return Object.entries(ecosystemConnections).map(([ecosystem, data]) => {
+                const avgConnections = data.places > 0 ? (data.total / data.places).toFixed(1) : '0'
+                const ecosystemName = ecosystem.split(':').pop()?.replace(/([a-z])([A-Z])/g, '$1 $2') || ecosystem
+
+                return (
+                  <div key={ecosystem} className="flex justify-between">
+                    <span className="text-text-dim capitalize">{ecosystemName}:</span>
+                    <span className="text-text">{avgConnections} avg connections</span>
+                  </div>
+                )
+              });
+            })()}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,3 +1,5 @@
+@import './fonts/fonts.css';
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -124,5 +126,40 @@ body {
 
   .canvas-container {
     @apply w-full h-full;
+  }
+
+  /* Range slider styling */
+  .slider {
+    @apply bg-surface border border-border;
+  }
+
+  .slider::-webkit-slider-thumb {
+    @apply appearance-none w-5 h-5 bg-primary rounded-full cursor-pointer;
+    @apply hover:bg-primary-hover transition-colors duration-200;
+  }
+
+  .slider::-moz-range-thumb {
+    @apply w-5 h-5 bg-primary rounded-full cursor-pointer border-none;
+    @apply hover:bg-primary-hover transition-colors duration-200;
+  }
+
+  .slider::-webkit-slider-track {
+    @apply bg-surface rounded-lg;
+  }
+
+  .slider::-moz-range-track {
+    @apply bg-surface rounded-lg;
+  }
+
+  .slider:disabled {
+    @apply opacity-50 cursor-not-allowed;
+  }
+
+  .slider:disabled::-webkit-slider-thumb {
+    @apply cursor-not-allowed;
+  }
+
+  .slider:disabled::-moz-range-thumb {
+    @apply cursor-not-allowed;
   }
 }
