@@ -46,9 +46,11 @@ We need to build a React-based visualization interface for the sophisticated Lic
 - Implementing the complete worldgen visualization interface with ecosystem band backgrounds and place graph overlay
 
 ## Key Constraints
-- No object-oriented programming - use pure functions only
-- Prioritize algorithmic efficiency (O(N) or better complexity preferred)
+- Pure functions preferred over object-oriented programming
+- Where we use pure functions, we inject all sources of impurity
+- Prioritize algorithmic efficiency and performance
 - All code must be immediately runnable
 - Unit tests should be pure and deterministic
 - Use tilde (~) path alias for `src` directory references and `@flux` for flux-game imports
 - Apply Gruvbox Dark Material theme consistently throughout the UI
+- **Vite Server Management**: The Vite development server runs continuously on `localhost:5173`. Request server restart when needed rather than attempting to manage the server process directly
