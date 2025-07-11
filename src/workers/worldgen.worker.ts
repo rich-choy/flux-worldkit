@@ -1,6 +1,6 @@
-// Web Worker for World Generation - Updated for vertices support
-import { generateWorld } from '@flux'
-import type { WorldGenerationConfig, WorldGenerationResult } from '@flux'
+// Web Worker for World Generation - Updated for river delta system
+import { generateWorld } from '../worldgen/river-delta'
+import type { WorldGenerationConfig, WorldGenerationResult } from '../worldgen/types'
 
 // Debug: Log what we imported to verify types
 console.log('Worker: Imported generateWorld function:', typeof generateWorld)
@@ -29,6 +29,7 @@ self.addEventListener('message', (event: MessageEvent<WorldGenerationMessage>) =
         minPlaces: payload.minPlaces,
         maxPlaces: payload.minPlaces * 2, // Allow up to 2x the min places
         worldAspectRatio: 1.618, // Golden ratio as specified
+        seed: payload.seed, // Pass the seed for deterministic generation
         lichtenberg: {
           minVertices: Math.max(10, Math.floor(payload.minPlaces / 5)), // Ensure reasonable minimum
           maxChainLength: 15 // Reasonable max chain length

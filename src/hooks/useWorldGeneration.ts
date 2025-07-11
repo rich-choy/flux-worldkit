@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import type { WorldGenerationResult } from '@flux';
+import type { WorldGenerationResult } from '~/worldgen/types';
 import type { WorldGenerationMessage, WorldGenerationResponse } from '~/workers/worldgen.worker';
 
 interface UseWorldGenerationReturn {

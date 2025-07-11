@@ -8,7 +8,7 @@ interface ControlsProps {
 const getRandomSeed = () => Math.floor(Math.random() * 1000000);
 
 export const Controls: React.FC<ControlsProps> = ({ onGenerateWorld, isGenerating }) => {
-  const [minPlaces, setMinPlaces] = useState(10000) // Middle of 100-19,900
+  const [minPlaces, setMinPlaces] = useState(1000) // Initial value: 1000
   const [seed, setSeed] = useState(getRandomSeed());
 
   const handleGenerateClick = () => {
@@ -17,7 +17,21 @@ export const Controls: React.FC<ControlsProps> = ({ onGenerateWorld, isGeneratin
   }
 
   const handleRandomizeSeed = () => {
-    setSeed(getRandomSeed());
+    const newSeed = getRandomSeed();
+    console.log('Randomizing seed to:', newSeed);
+    setSeed(newSeed);
+  }
+
+  const handlePlacesChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newValue = Number(e.target.value);
+    console.log('Places slider changed to:', newValue);
+    setMinPlaces(newValue);
+  }
+
+  const handleSeedChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const newValue = Number(e.target.value);
+    console.log('Seed input changed to:', newValue);
+    setSeed(newValue);
   }
 
   return (
@@ -43,9 +57,9 @@ export const Controls: React.FC<ControlsProps> = ({ onGenerateWorld, isGeneratin
                 id="minPlaces"
                 type="range"
                 min="100"
-                max="19900"
+                max="9900"
                 value={minPlaces}
-                onChange={(e) => setMinPlaces(Number(e.target.value))}
+                onChange={handlePlacesChange}
                 className="w-32 h-2 bg-surface rounded-lg appearance-none cursor-pointer slider"
                 disabled={isGenerating}
               />
@@ -65,7 +79,7 @@ export const Controls: React.FC<ControlsProps> = ({ onGenerateWorld, isGeneratin
                 id="seed"
                 type="number"
                 value={seed}
-                onChange={(e) => setSeed(Number(e.target.value))}
+                onChange={handleSeedChange}
                 className="input w-24 text-sm"
                 disabled={isGenerating}
               />
@@ -84,8 +98,7 @@ export const Controls: React.FC<ControlsProps> = ({ onGenerateWorld, isGeneratin
           <button
             onClick={handleGenerateClick}
             disabled={isGenerating}
-            className="btn btn-primary px-6 py-2 text-sm whitespace-nowrap relative z-10"
-            style={{ pointerEvents: 'auto' }}
+            className="btn btn-primary px-6 py-2 text-sm whitespace-nowrap"
           >
             {isGenerating ? 'Generating...' : 'Generate World'}
           </button>

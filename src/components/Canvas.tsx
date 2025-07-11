@@ -1,10 +1,13 @@
 import React, { useEffect, useRef } from 'react'
-import type { WorldGenerationResult } from '@flux'
+import type { WorldGenerationResult } from '~/worldgen/types'
 
 interface CanvasProps {
   world: WorldGenerationResult | null
   width: number
   height: number
+  zoom: number
+  panX: number
+  panY: number
 }
 
 // Gruvbox Dark Material colors for ecosystems
@@ -17,7 +20,17 @@ const ECOSYSTEM_COLORS = {
   'flux:eco:marsh:tropical': '#8ec07c'       // Light aqua - marsh
 }
 
-export const Canvas: React.FC<CanvasProps> = ({ world, width, height }) => {
+// Lighter, more vibrant colors for nodes
+const NODE_COLORS = {
+  'flux:eco:steppe:arid': '#fabd2f',        // Bright yellow - vibrant steppe
+  'flux:eco:grassland:temperate': '#b8bb26', // Lime green - vibrant grassland
+  'flux:eco:forest:temperate': '#8ec07c',    // Light aqua - vibrant forest
+  'flux:eco:mountain:arid': '#bdae93',        // Light gray - vibrant mountain
+  'flux:eco:jungle:tropical': '#b8bb26',     // Bright green - vibrant jungle
+  'flux:eco:marsh:tropical': '#83a598'       // Blue - vibrant marsh
+}
+
+export const Canvas: React.FC<CanvasProps> = ({ world, width, height, zoom, panX, panY }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
 
   useEffect(() => {
@@ -47,11 +60,11 @@ export const Canvas: React.FC<CanvasProps> = ({ world, width, height }) => {
 
     // Draw world if available
     if (world && world.vertices?.length > 0) {
-      drawWorld(ctx, world, width, height)
+      drawWorld(ctx, world, width, height, zoom, panX, panY)
     } else if (world) {
       console.log('Canvas: World exists but no vertices array or empty vertices')
     }
-  }, [world, width, height])
+  }, [world, width, height, zoom, panX, panY])
 
   return (
     <canvas
@@ -87,10 +100,31 @@ const drawEcosystemBands = (ctx: CanvasRenderingContext2D, width: number, height
     ctx.moveTo(x, 0)
     ctx.lineTo(x, height)
     ctx.stroke()
+
+    // Draw ecosystem label at the top of the band
+    ctx.fillStyle = '#ebdbb2' // Gruvbox light text color
+    ctx.font = '12px monospace'
+    ctx.textAlign = 'center'
+    ctx.textBaseline = 'top'
+
+    const labelX = x + bandWidth / 2
+    const labelY = 8 // 8px from top
+
+    // Add a subtle background for better readability
+    const textMetrics = ctx.measureText(ecosystem)
+    const textWidth = textMetrics.width
+    const textHeight = 12
+
+    ctx.fillStyle = '#00000080' // Semi-transparent black background
+    ctx.fillRect(labelX - textWidth / 2 - 4, labelY - 2, textWidth + 8, textHeight + 4)
+
+    // Draw the text
+    ctx.fillStyle = '#ebdbb2' // Gruvbox light text color
+    ctx.fillText(ecosystem, labelX, labelY)
   })
 }
 
-const drawWorld = (ctx: CanvasRenderingContext2D, world: WorldGenerationResult, canvasWidth: number, canvasHeight: number) => {
+const drawWorld = (ctx: CanvasRenderingContext2D, world: WorldGenerationResult, canvasWidth: number, canvasHeight: number, zoom: number, panX: number, panY: number) => {
   if (!world.vertices.length) return
 
   // Find world bounds from the vertices
@@ -99,9 +133,10 @@ const drawWorld = (ctx: CanvasRenderingContext2D, world: WorldGenerationResult, 
 
   const scaleX = canvasWidth / worldBounds.width
   const scaleY = canvasHeight / worldBounds.height
-  const scale = Math.min(scaleX, scaleY) * 0.9 // 90% to add padding
+  const baseScale = Math.min(scaleX, scaleY) * 0.9 // 90% to add padding
+  const scale = baseScale * zoom // Apply zoom multiplier
 
-  console.log('Canvas: Scale calculations:', { scaleX, scaleY, finalScale: scale })
+  console.log('Canvas: Scale calculations:', { scaleX, scaleY, baseScale, zoom, finalScale: scale })
 
   // Calculate offset to center the world
   const worldCenterX = worldBounds.minX + worldBounds.width / 2
@@ -109,10 +144,10 @@ const drawWorld = (ctx: CanvasRenderingContext2D, world: WorldGenerationResult, 
   const canvasCenterX = canvasWidth / 2
   const canvasCenterY = canvasHeight / 2
 
-  // Transform world coordinates to canvas coordinates
+  // Transform world coordinates to canvas coordinates (with zoom and pan)
   const transform = (x: number, y: number) => ({
-    x: (x - worldCenterX) * scale + canvasCenterX,
-    y: (y - worldCenterY) * scale + canvasCenterY
+    x: (x - worldCenterX) * scale + canvasCenterX + panX,
+    y: (y - worldCenterY) * scale + canvasCenterY + panY
   })
 
   // Test transformation
@@ -156,9 +191,9 @@ const drawConnections = (
   world: WorldGenerationResult,
   transform: (x: number, y: number) => { x: number; y: number }
 ) => {
-  ctx.strokeStyle = '#fff' // White for high visibility
-  ctx.lineWidth = 2 // Thicker lines
-  ctx.globalAlpha = 0.8 // More opaque
+  ctx.strokeStyle = '#a89984' // Gruvbox gray instead of bright white
+  ctx.lineWidth = 1 // Thinner lines
+  ctx.globalAlpha = 0.25 // Much more subtle opacity
 
   // Create a map of place IDs to vertex coordinates for quick lookup
   const vertexMap = new Map<string, { x: number; y: number }>()
@@ -184,7 +219,7 @@ const drawConnections = (
 
       const fromCoords = transform(fromVertex.x, fromVertex.y)
 
-      Object.values(place.exits).forEach(exit => {
+      Object.values(place.exits).forEach((exit: any) => {
         const toVertex = vertexMap.get(exit.to)
         if (toVertex) {
           const toCoords = transform(toVertex.x, toVertex.y)
@@ -256,11 +291,11 @@ const drawPlaces = (
 
     const coords = transform(vertex.x, vertex.y)
 
-    // Get ecosystem color
-    const ecosystemColor = ECOSYSTEM_COLORS[place.ecology.ecosystem as keyof typeof ECOSYSTEM_COLORS] || '#ebdbb2'
+    // Get ecosystem color for the node
+    const nodeColor = NODE_COLORS[place.ecology.ecosystem as keyof typeof NODE_COLORS] || '#ebdbb2'
 
     // Draw place node
-    ctx.fillStyle = ecosystemColor
+    ctx.fillStyle = nodeColor
     ctx.beginPath()
     ctx.arc(coords.x, coords.y, 3, 0, 2 * Math.PI)
     ctx.fill()
@@ -279,7 +314,7 @@ const drawPlaces = (
         ecosystem: place.ecology.ecosystem,
         worldCoords: { x: vertex.x, y: vertex.y },
         canvasCoords: coords,
-        color: ecosystemColor
+        color: nodeColor
       })
     }
   })

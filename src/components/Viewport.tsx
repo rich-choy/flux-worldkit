@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react'
 import type { WorldGenerationResult } from '@flux'
 import type { ViewMode } from '~/App'
 import { Canvas } from './Canvas'
+import { ZoomPanControls } from './ZoomPanControls'
 
 interface ViewportProps {
   world: WorldGenerationResult | null
@@ -34,6 +35,9 @@ interface GraphViewProps {
 
 const GraphView: React.FC<GraphViewProps> = ({ world }) => {
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
+  const [zoom, setZoom] = useState(1)
+  const [panX, setPanX] = useState(0)
+  const [panY, setPanY] = useState(0)
 
   useEffect(() => {
     const updateDimensions = () => {
@@ -59,12 +63,52 @@ const GraphView: React.FC<GraphViewProps> = ({ world }) => {
     return () => window.removeEventListener('resize', updateDimensions)
   }, [])
 
+  // Reset zoom and pan when world changes
+  useEffect(() => {
+    setZoom(1)
+    setPanX(0)
+    setPanY(0)
+  }, [world])
+
+  const handleZoomIn = () => {
+    setZoom(prev => Math.min(prev * 1.2, 5)) // Max zoom 5x
+  }
+
+  const handleZoomOut = () => {
+    setZoom(prev => Math.max(prev / 1.2, 0.1)) // Min zoom 0.1x
+  }
+
+  const handlePanUp = () => {
+    setPanY(prev => prev + 50)
+  }
+
+  const handlePanDown = () => {
+    setPanY(prev => prev - 50)
+  }
+
+  const handlePanLeft = () => {
+    setPanX(prev => prev + 50)
+  }
+
+  const handlePanRight = () => {
+    setPanX(prev => prev - 50)
+  }
+
+  const handleResetView = () => {
+    setZoom(1)
+    setPanX(0)
+    setPanY(0)
+  }
+
   return (
-    <div className="h-full w-full flex items-start justify-start">
+    <div className="h-full w-full flex items-start justify-start relative">
       <Canvas
         world={world}
         width={dimensions.width}
         height={dimensions.height}
+        zoom={zoom}
+        panX={panX}
+        panY={panY}
       />
       {!world && (
         <div className="absolute inset-0 flex items-center justify-center">
@@ -77,6 +121,18 @@ const GraphView: React.FC<GraphViewProps> = ({ world }) => {
             </p>
           </div>
         </div>
+      )}
+      {world && (
+        <ZoomPanControls
+          zoom={zoom}
+          onZoomIn={handleZoomIn}
+          onZoomOut={handleZoomOut}
+          onPanUp={handlePanUp}
+          onPanDown={handlePanDown}
+          onPanLeft={handlePanLeft}
+          onPanRight={handlePanRight}
+          onResetView={handleResetView}
+        />
       )}
     </div>
   )

@@ -3,7 +3,7 @@ import { ErrorBoundary } from '~/components/ErrorBoundary';
 import { Controls } from '~/components/Controls';
 import { Viewport } from '~/components/Viewport';
 import { useWorldGeneration } from '~/hooks/useWorldGeneration';
-import type { WorldGenerationResult } from '@flux';
+import type { WorldGenerationResult } from '~/worldgen/types';
 
 export type ViewMode = 'graph' | 'analysis'
 
