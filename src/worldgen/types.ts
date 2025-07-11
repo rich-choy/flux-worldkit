@@ -1,19 +1,21 @@
 /**
  * World generation library types for geography.md-based world generation
- * Uses rectangular bands and Lichtenberg figures for connectivity
+ * Uses rectangular bands and river delta patterns for connectivity
  */
 
-import type { Place, EcologicalProfile } from '@flux';
+import type { Place, EcologicalProfile } from 'flux-game';
 
 // Ecosystem names from geography.md specification
-export enum EcosystemName {
-  STEPPE_ARID = 'flux:eco:steppe:arid',
-  GRASSLAND_TEMPERATE = 'flux:eco:grassland:temperate',
-  FOREST_TEMPERATE = 'flux:eco:forest:temperate',
-  MOUNTAIN_ARID = 'flux:eco:mountain:arid',
-  JUNGLE_TROPICAL = 'flux:eco:jungle:tropical',
-  MARSH_TROPICAL = 'flux:eco:marsh:tropical'
-}
+export const EcosystemName = {
+  STEPPE_ARID: 'flux:eco:steppe:arid',
+  GRASSLAND_TEMPERATE: 'flux:eco:grassland:temperate',
+  FOREST_TEMPERATE: 'flux:eco:forest:temperate',
+  MOUNTAIN_ARID: 'flux:eco:mountain:arid',
+  JUNGLE_TROPICAL: 'flux:eco:jungle:tropical',
+  MARSH_TROPICAL: 'flux:eco:marsh:tropical'
+} as const;
+
+export type EcosystemName = typeof EcosystemName[keyof typeof EcosystemName];
 
 // World generation configuration from .cursorrules.md
 export type WorldGenerationConfig = {
@@ -21,10 +23,6 @@ export type WorldGenerationConfig = {
   maxPlaces?: number;
   worldAspectRatio: 1.618; // The ratio of the world's length to its width
   seed?: number;           // Optional seed for deterministic generation
-  lichtenberg: {
-    minVertices: number;     // Minimum number of vertices in the Lichtenberg figure
-    maxChainLength: number;  // Maximum length of any single chain/branch
-    };
 }
 
 // World generation result from .cursorrules.md
@@ -77,9 +75,6 @@ export const ECOSYSTEM_PROFILES: Record<EcosystemName, EcologicalProfile> = {
     humidity: [85.0, 100.0]             // Very high humidity (marsh conditions)
   }
 };
-
-// Re-export pure geometric types from the fractal library
-export type { LichtenbergVertex, LichtenbergConnection, LichtenbergFigure, LichtenbergConfig } from '../lib/fractal/lichtenberg';
 
 // World-specific vertex (adds ecosystem to pure geometric vertex)
 export type WorldVertex = {

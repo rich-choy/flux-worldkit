@@ -4,12 +4,72 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { Place, Direction } from '../types/index.js';
 import { EcosystemName } from './types.js';
-import { createTestPlace } from '~/testing/world-testing';
-import { createExit } from '~/worldkit/entity/place';
-import { createPlaceUrn } from '~/lib/taxonomy';
 import { generateWorld, getConnectedComponents } from './integration.js';
+
+// Simple type definitions for testing
+type Place = {
+  id: string;
+  name: string;
+  description: string;
+  exits: Record<string, any>;
+  entities: Record<string, any>;
+  ecology: any;
+  weather: any;
+};
+
+enum Direction {
+  NORTH = 'north',
+  SOUTH = 'south',
+  EAST = 'east',
+  WEST = 'west',
+  NORTHEAST = 'northeast',
+  NORTHWEST = 'northwest',
+  SOUTHEAST = 'southeast',
+  SOUTHWEST = 'southwest',
+  UP = 'up',
+  DOWN = 'down'
+}
+
+// Simple test utilities
+function createTestPlace(overrides: any = {}): Place {
+  return {
+    id: 'flux:place:test:default',
+    name: 'Test Place',
+    description: 'A test location',
+    exits: {},
+    entities: {},
+    ecology: {
+      ecosystem: 'flux:eco:grassland:temperate',
+      temperature: [10, 25],
+      pressure: [1005, 1020],
+      humidity: [45, 70]
+    },
+    weather: {
+      temperature: 20,
+      pressure: 1013,
+      humidity: 60,
+      precipitation: 0,
+      ppfd: 800,
+      clouds: 30,
+      ts: Date.now(),
+      timescale: 1
+    },
+    ...overrides
+  };
+}
+
+function createExit(config: { direction: Direction; label: string; to: string }) {
+  return {
+    direction: config.direction,
+    label: config.label,
+    to: config.to
+  };
+}
+
+function createPlaceUrn(namespace: string, id: string): string {
+  return `flux:place:${namespace}:${id}`;
+}
 
 // Test helper to create a test place with proper ecosystem data
 function createTestPlaceWithEcosystem(id: string, name: string, ecosystem: EcosystemName): Place {
@@ -126,11 +186,7 @@ describe('Worldgen Connectivity Preservation', () => {
         seed: 42,
         minPlaces: 25,
         maxPlaces: 50,
-        worldAspectRatio: 1.618 as const,
-        lichtenberg: {
-          minVertices: 5,
-          maxChainLength: 10
-        }
+        worldAspectRatio: 1.618 as const
       };
 
       const result = generateWorld(config);
@@ -165,11 +221,8 @@ describe('Worldgen Connectivity Preservation', () => {
       const config = {
         seed,
         minPlaces: 1000, // Hard minimum - algorithm must generate at least this many
-        worldAspectRatio: 1.618 as const,
-        lichtenberg: {
-          minVertices: 100,
-          maxChainLength: 25
-        }
+        maxPlaces: 1500, // Soft maximum for large worlds
+        worldAspectRatio: 1.618 as const
       };
 
       const result = generateWorld(config);
@@ -205,11 +258,7 @@ describe('Worldgen Connectivity Preservation', () => {
         seed: 123,
         minPlaces: 20,
         maxPlaces: 30,
-        worldAspectRatio: 1.618 as const,
-        lichtenberg: {
-          minVertices: 4,
-          maxChainLength: 8
-        }
+        worldAspectRatio: 1.618 as const
       };
 
       // Generate the same world twice
@@ -230,22 +279,14 @@ describe('Worldgen Connectivity Preservation', () => {
         seed: 999,
         minPlaces: 5,
         maxPlaces: 10,
-        worldAspectRatio: 1.618 as const,
-        lichtenberg: {
-          minVertices: 2,
-          maxChainLength: 5
-        }
+        worldAspectRatio: 1.618 as const
       };
 
       const largeConfig = {
         seed: 999,
         minPlaces: 80,
         maxPlaces: 120,
-        worldAspectRatio: 1.618 as const,
-        lichtenberg: {
-          minVertices: 16,
-          maxChainLength: 20
-        }
+        worldAspectRatio: 1.618 as const
       };
 
       const smallResult = generateWorld(smallConfig);
@@ -367,11 +408,7 @@ describe('Worldgen Connectivity Preservation', () => {
         seed: 42,
         minPlaces: 50,
         maxPlaces: 100,
-        worldAspectRatio: 1.618 as const,
-        lichtenberg: {
-          minVertices: 10,
-          maxChainLength: 15
-        }
+        worldAspectRatio: 1.618 as const
       };
 
       const result = generateWorld(config);
@@ -397,11 +434,7 @@ describe('Worldgen Connectivity Preservation', () => {
         seed: 777,
         minPlaces: 30,
         maxPlaces: 40,
-        worldAspectRatio: 1.618 as const,
-        lichtenberg: {
-          minVertices: 6,
-          maxChainLength: 12
-        }
+        worldAspectRatio: 1.618 as const
       };
 
       const result = generateWorld(config);
