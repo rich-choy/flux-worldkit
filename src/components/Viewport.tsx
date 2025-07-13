@@ -186,27 +186,27 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({ world }) => {
           </h3>
           <div className="space-y-2 text-sm">
             {(() => {
-              // Calculate connections per ecosystem
-              const ecosystemConnections = world.places.reduce((acc: Record<string, { total: number; places: number }>, place: any) => {
-                const ecosystem = place.ecology.ecosystem
-                const exitCount = Object.keys(place.exits || {}).length
+              // Calculate connections per ecosystem using vertices
+              const ecosystemConnections = world.vertices.reduce((acc: Record<string, { total: number; vertices: number }>, vertex) => {
+                const ecosystem = vertex.ecosystem
+                const connectionCount = vertex.connections.length
 
                 if (!acc[ecosystem]) {
-                  acc[ecosystem] = { total: 0, places: 0 }
+                  acc[ecosystem] = { total: 0, vertices: 0 }
                 }
-                acc[ecosystem].total += exitCount
-                acc[ecosystem].places += 1
+                acc[ecosystem].total += connectionCount
+                acc[ecosystem].vertices += 1
 
                 return acc
-              }, {} as Record<string, { total: number; places: number }>)
+              }, {} as Record<string, { total: number; vertices: number }>)
 
               return Object.entries(ecosystemConnections).map(([ecosystem, data]) => {
-                const avgConnections = data.places > 0 ? (data.total / data.places).toFixed(1) : '0'
-                const ecosystemName = ecosystem.split(':').pop()?.replace(/([a-z])([A-Z])/g, '$1 $2') || ecosystem
+                const avgConnections = data.vertices > 0 ? (data.total / data.vertices).toFixed(1) : '0'
+                const ecosystemName = ecosystem.charAt(0).toUpperCase() + ecosystem.slice(1)
 
                 return (
                   <div key={ecosystem} className="flex justify-between">
-                    <span className="text-text-dim capitalize">{ecosystemName}:</span>
+                    <span className="text-text-dim">{ecosystemName}:</span>
                     <span className="text-text">{avgConnections} avg connections</span>
                   </div>
                 )

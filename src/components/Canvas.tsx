@@ -22,12 +22,12 @@ const ECOSYSTEM_COLORS = {
 
 // Ecosystem-specific node colors - fully saturated
 const NODE_COLORS = {
-  'steppe': '#ff0000',         // Fully saturated red
+  'steppe': '#8b4513',         // Brown - earthy arid steppe
   'grassland': '#ffff00',      // Fully saturated yellow
   'forest': '#00ff00',         // Fully saturated green
-  'mountain': '#ff0000',       // Fully saturated red (same as steppe)
-  'jungle': '#00ff00',         // Fully saturated green (same as forest)
-  'marsh': '#8b4513'           // Brownish green (saddle brown)
+  'mountain': '#ff0000',       // Red - rocky mountains
+  'jungle': '#006400',         // Dark green - darker than forest
+  'marsh': '#556b2f'           // Dark olive green - swampy marsh
 }
 
 // Map ecosystem types to URNs for display

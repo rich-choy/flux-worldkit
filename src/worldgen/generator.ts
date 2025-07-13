@@ -22,8 +22,7 @@ const DEFAULT_CONFIG: Required<WorldGenerationConfig> = {
   worldHeightKm: 9.0,
   branchingFactor: 1.0,
   meanderingFactor: 0.5,
-  ditheringStrength: 1.0,
-  gaussianSigma: 1.0,
+  ditheringStrength: 0.5,
   showZoneBoundaries: false,
   showFlowDirection: false,
   colorScheme: 'default',
@@ -63,15 +62,20 @@ export function generateWorld(config: WorldGenerationConfig = {}): WorldGenerati
 
   // PHASE 2: Generate continuous river flow with initial ecosystem assignment
   console.log('\n🌊 Phase 2: Generating continuous river flow...');
-  const { vertices, edges } = generateRiverFlow(spatialMetrics, ecosystemBands, rng);
+  const { vertices, edges } = generateRiverFlow(spatialMetrics, ecosystemBands, fullConfig, rng);
 
   // PHASE 3: Apply Gaussian dithering to transition zones
   console.log('\n🎲 Phase 3: Applying Gaussian ecosystem dithering...');
+  console.log(`🎲 Dithering strength: ${fullConfig.ditheringStrength} (${fullConfig.ditheringStrength === 0 ? 'no dithering' : fullConfig.ditheringStrength === 1 ? 'maximum dithering' : 'moderate dithering'})`);
   const { ditheredVertices, ditheringStats } = applyEcosystemDithering(vertices, ecosystemBands, fullConfig, rng);
+
+  // PHASE 3.5: Apply eastern marsh zone
+  console.log('\n🏞️  Phase 3.5: Applying eastern marsh zone...');
+  const { marshVertices, marshStats } = applyEasternMarshZone(ditheredVertices);
 
   // PHASE 4: Validate connectivity and ecosystem distribution
   console.log('\n✅ Phase 4: Validating connectivity and distribution...');
-  const connectivityStats = validateConnectivity(ditheredVertices, edges);
+  const connectivityStats = validateConnectivity(marshVertices, edges);
 
   // PHASE 5: Generate places and exits (placeholder for now)
   console.log('\n🏗️  Phase 5: Generating places and exits...');
@@ -79,21 +83,21 @@ export function generateWorld(config: WorldGenerationConfig = {}): WorldGenerati
 
   // PHASE 6: Format output for React Viewport component
   console.log('\n🎨 Phase 6: Formatting visualization data...');
-  const visualizationData = formatVisualizationData(ditheredVertices, edges, ecosystemBands, spatialMetrics);
+  const visualizationData = formatVisualizationData(marshVertices, edges, ecosystemBands, spatialMetrics);
 
   const generationTime = performance.now() - startTime;
   console.log(`\n🎉 World generation complete in ${generationTime.toFixed(1)}ms`);
-  console.log(`📊 Generated ${ditheredVertices.length} vertices, ${edges.length} edges`);
+  console.log(`📊 Generated ${marshVertices.length} vertices, ${edges.length} edges`);
   console.log(`🔗 Connectivity: ${connectivityStats.avgConnectionsPerVertex.toFixed(2)} avg connections per vertex`);
 
   return {
-    vertices: ditheredVertices,
+    vertices: marshVertices,
     edges,
     ecosystemBands,
     spatialMetrics,
     ditheringStats,
     connectivityStats,
-    originVertex: ditheredVertices.find(v => v.isOrigin)!,
+    originVertex: marshVertices.find(v => v.isOrigin)!,
     boundaryLines: visualizationData.boundaryLines,
     config: fullConfig,
     generationTime,
@@ -150,6 +154,7 @@ function defineEcosystemBands(metrics: SpatialMetrics): EcosystemBand[] {
 function generateRiverFlow(
   metrics: SpatialMetrics,
   bands: EcosystemBand[],
+  config: Required<WorldGenerationConfig>,
   rng: () => number
 ): { vertices: WorldVertex[], edges: RiverEdge[] } {
   const vertices: WorldVertex[] = [];
@@ -182,6 +187,7 @@ function generateRiverFlow(
   ];
 
   console.log(`🌊 Starting river flow from origin at (${originGridX}, ${originGridY})`);
+  console.log(`🌊 Branching factor: ${config.branchingFactor} (${config.branchingFactor === 0 ? 'no branching' : config.branchingFactor === 1 ? 'maximum branching' : 'moderate branching'})`);
 
   // Propagate eastward column by column
   for (let currentCol = 1; currentCol < metrics.gridWidth; currentCol++) {
@@ -195,6 +201,7 @@ function generateRiverFlow(
         currentCol,
         metrics,
         bands,
+        config,
         rng,
         vertexMap
       );
@@ -259,17 +266,20 @@ function generateFlowFromHead(
   targetCol: number,
   metrics: SpatialMetrics,
   bands: EcosystemBand[],
+  config: Required<WorldGenerationConfig>,
   rng: () => number,
   vertexMap: Map<string, WorldVertex>
 ): WorldVertex[] {
   const newVertices: WorldVertex[] = [];
   const centerY = Math.floor(metrics.gridHeight / 2);
 
-  // Generate possible flow directions (8-directional movement)
+  // Generate possible flow directions with vertical bias
   const possibleMoves = [
-    { dx: 1, dy: -1 }, // northeast
-    { dx: 1, dy: 0 },  // east
-    { dx: 1, dy: 1 }   // southeast
+    { dx: 1, dy: -1 }, // northeast (diagonal)
+    { dx: 1, dy: 0 },  // east (horizontal)
+    { dx: 1, dy: 1 },  // southeast (diagonal)
+    { dx: 0, dy: -1 }, // north (vertical)
+    { dx: 0, dy: 1 }   // south (vertical)
   ];
 
   // Apply boundary collision bias
@@ -281,16 +291,36 @@ function generateFlowFromHead(
   // Bias toward center when near boundaries
   const centerBias = Math.max(0, 0.7 - Math.min(distanceFromTop, distanceFromBottom) / 10);
 
-  // Filter and weight moves based on boundary collision handling
+  // Filter and weight moves based on directional bias and boundary collision handling
   const weightedMoves = possibleMoves.map(move => {
     const newY = currentY + move.dy;
     let weight = 1.0;
+
+    // Apply directional bias: favor vertical over diagonal, maintain eastward flow
+    if (move.dx === 1 && move.dy === 0) {
+      // Pure eastward movement - highest weight to maintain eastward flow
+      weight *= 1.5;
+    } else if (move.dx === 0 && (move.dy === -1 || move.dy === 1)) {
+      // Pure vertical movement - high weight for vertical bias
+      weight *= 1.2;
+    } else if (move.dx === 1 && (move.dy === -1 || move.dy === 1)) {
+      // Diagonal movement - reduced weight
+      weight *= 0.6;
+    }
 
     // Apply boundary collision bias
     if (newY <= 0 || newY >= metrics.gridHeight - 1) {
       weight *= 0.1; // Strongly discourage hitting boundaries
     } else if (newY <= 2 || newY >= metrics.gridHeight - 3) {
       weight *= 0.4; // Discourage getting close to boundaries
+    }
+
+    // Ensure eastward progression: if we're not at the target column yet,
+    // slightly favor eastward moves to prevent stalling
+    if (flowHead.gridX < targetCol - 1) {
+      if (move.dx === 1) {
+        weight *= 1.1; // Slight boost for eastward moves when far from target
+      }
     }
 
     // Apply center bias when near boundaries
@@ -304,16 +334,31 @@ function generateFlowFromHead(
     return { move, weight };
   });
 
-  // Select number of branches (1-3 with lower probability for higher numbers)
+  // Select number of branches based on branching factor
+  // branchingFactor 0.0 = always 1 branch, 1.0 = always 3 branches
   const branchRoll = rng();
-  const numBranches = branchRoll < 0.6 ? 1 : branchRoll < 0.85 ? 2 : 3;
+  let numBranches = 1;
+
+  if (config.branchingFactor > 0) {
+    // Calculate probabilities based on branching factor
+    const singleBranchProb = 1 - config.branchingFactor * 0.8; // 0.8 at max branching
+    const doubleBranchProb = config.branchingFactor * 0.6; // 0.6 at max branching
+
+    if (branchRoll < singleBranchProb) {
+      numBranches = 1;
+    } else if (branchRoll < singleBranchProb + doubleBranchProb) {
+      numBranches = 2;
+    } else {
+      numBranches = 3;
+    }
+  }
 
   // Select moves based on weights
   const selectedMoves = selectWeightedMoves(weightedMoves, numBranches, rng);
 
   // Create vertices for selected moves
   for (const move of selectedMoves) {
-    const newGridX = targetCol;
+    const newGridX = flowHead.gridX + move.dx;
     const newGridY = Math.max(0, Math.min(metrics.gridHeight - 1, currentY + move.dy));
     const vertexKey = getVertexKey(newGridX, newGridY);
 
@@ -442,36 +487,46 @@ function applyEcosystemDithering(
     marsh: 0
   };
 
+  // Store original ecosystems before any dithering to prevent cascading effects
+  const originalEcosystems = new Map<string, EcosystemType>();
   ditheredVertices.forEach(vertex => {
-    // Find which band this vertex belongs to
-    const band = bands.find(b => vertex.x >= b.startX && vertex.x < b.endX);
-    if (!band) {
-      // Keep original ecosystem if somehow outside bands
-      ecosystemCounts[vertex.ecosystem]++;
-      return;
-    }
+    originalEcosystems.set(vertex.id, vertex.ecosystem);
+  });
 
-    // Determine if vertex is in pure zone or transition zone
-    const isInPureZone = vertex.x >= band.pureZoneStart && vertex.x <= band.pureZoneEnd;
+  // Track which vertices have already been dithered to prevent multiple modifications
+  const alreadyDithered = new Set<string>();
 
-    if (isInPureZone) {
-      // Pure zone: keep original ecosystem assignment
-      pureZoneVertices++;
-      ecosystemCounts[vertex.ecosystem]++;
-    } else {
-      // Transition zone: apply Gaussian dithering
-      transitionZoneVertices++;
+    ditheredVertices.forEach(vertex => {
+    const originalEcosystem = originalEcosystems.get(vertex.id)!;
 
-      const originalEcosystem = vertex.ecosystem;
-      const newEcosystem = applyGaussianDithering(vertex, band, bands, config, rng);
+    // Find the band that corresponds to the vertex's ORIGINAL ecosystem
+          const originalBand = bands.find(b => b.ecosystem === originalEcosystem)!;
+
+    // Debug: (removed for production)
+
+    // Apply boundary-based dithering to all vertices (boundary proximity prevents discrete bands)
+    if (!alreadyDithered.has(vertex.id)) {
+      const newEcosystem = applyGaussianDithering(vertex, originalBand, bands, config, rng, originalEcosystem);
 
       if (newEcosystem !== originalEcosystem) {
         vertex.ecosystem = newEcosystem;
+        alreadyDithered.add(vertex.id);
         ditheredCount++;
       }
-
-      ecosystemCounts[vertex.ecosystem]++;
     }
+
+    // Track statistics based on pure/transition zones for reporting
+    const isInOriginalBand = vertex.x >= originalBand.startX && vertex.x < originalBand.endX;
+    const isInOriginalPureZone = vertex.x >= originalBand.pureZoneStart && vertex.x <= originalBand.pureZoneEnd;
+    const isInOriginalTransitionZone = isInOriginalBand && !isInOriginalPureZone;
+
+    if (isInOriginalTransitionZone) {
+      transitionZoneVertices++;
+    } else {
+      pureZoneVertices++;
+    }
+
+    ecosystemCounts[vertex.ecosystem]++;
   });
 
   const ditheringStats: DitheringStats = {
@@ -489,6 +544,43 @@ function applyEcosystemDithering(
 }
 
 /**
+ * PHASE 3.5: Apply eastern marsh zone - assign all vertices in easternmost column to marsh
+ */
+function applyEasternMarshZone(vertices: WorldVertex[]): {
+  marshVertices: WorldVertex[],
+  marshStats: { totalVertices: number; marshVertices: number; easternColumn: number }
+} {
+  console.log(`🏞️  Applying eastern marsh zone...`);
+
+  const marshVertices: WorldVertex[] = vertices.map(vertex => ({ ...vertex }));
+
+  // Find the easternmost column
+  const easternColumn = Math.max(...vertices.map(v => v.gridX));
+
+  // Count vertices in eastern column before conversion
+  const easternVertices = vertices.filter(v => v.gridX === easternColumn);
+
+  // Assign marsh ecosystem to all vertices in easternmost column
+  let marshCount = 0;
+  marshVertices.forEach(vertex => {
+    if (vertex.gridX === easternColumn) {
+      vertex.ecosystem = 'marsh';
+      marshCount++;
+    }
+  });
+
+  const marshStats = {
+    totalVertices: vertices.length,
+    marshVertices: marshCount,
+    easternColumn
+  };
+
+  console.log(`🏞️  Eastern marsh zone applied: ${marshCount} vertices in column ${easternColumn} converted to marsh`);
+
+  return { marshVertices, marshStats };
+}
+
+/**
  * Apply Gaussian dithering to a single vertex in a transition zone
  */
 function applyGaussianDithering(
@@ -496,10 +588,11 @@ function applyGaussianDithering(
   currentBand: EcosystemBand,
   allBands: EcosystemBand[],
   config: Required<WorldGenerationConfig>,
-  rng: () => number
+  rng: () => number,
+  originalEcosystem: EcosystemType
 ): EcosystemType {
   // Find adjacent ecosystems
-  const currentBandIndex = allBands.indexOf(currentBand);
+  const currentBandIndex = allBands.findIndex(b => b.ecosystem === currentBand.ecosystem);
   const adjacentEcosystems: EcosystemType[] = [];
 
   // Add previous ecosystem (westward)
@@ -512,30 +605,105 @@ function applyGaussianDithering(
     adjacentEcosystems.push(allBands[currentBandIndex + 1].ecosystem);
   }
 
-  // If no adjacent ecosystems, keep current
+  // Debug: (removed for production)
+
+  // If no adjacent ecosystems, keep original
   if (adjacentEcosystems.length === 0) {
-    return vertex.ecosystem;
+    return originalEcosystem;
   }
 
-  // Calculate distance from band center
-  const bandCenter = (currentBand.startX + currentBand.endX) / 2;
-  const distanceFromCenter = Math.abs(vertex.x - bandCenter);
-  const maxDistanceFromCenter = currentBand.width / 2;
-  const normalizedDistance = distanceFromCenter / maxDistanceFromCenter;
+  // Calculate smooth transition probabilities based on distance to ecosystem boundaries
+  const ecosystemProbabilities: { ecosystem: EcosystemType; probability: number }[] = [];
 
-  // Apply Gaussian probability based on distance and dithering strength
-  const gaussianFactor = Math.exp(-Math.pow(normalizedDistance / config.gaussianSigma, 2));
-  const ditheringProbability = config.ditheringStrength * (1 - gaussianFactor);
+  // Base probability for staying in original ecosystem
+  let originalProbability = 1.0;
 
-  // Decide whether to dither
-  if (rng() < ditheringProbability) {
-    // Choose which adjacent ecosystem to switch to
-    const targetEcosystem = adjacentEcosystems[Math.floor(rng() * adjacentEcosystems.length)];
-    return targetEcosystem;
+      // Calculate transition probabilities to adjacent ecosystems
+  adjacentEcosystems.forEach(adjEcosystem => {
+    const adjBand = allBands.find(b => b.ecosystem === adjEcosystem)!;
+
+    // Determine the boundary between current and adjacent ecosystem
+    let boundaryX: number;
+    let distanceToBoundary: number;
+    let isInDitheringZone = false;
+
+          if (adjBand.startX >= currentBand.endX) {
+        // Adjacent band is to the right - boundary is at current band's right edge
+        boundaryX = currentBand.endX;
+        distanceToBoundary = boundaryX - vertex.x; // Distance from vertex to right boundary
+
+        // Dithering zone extends 38% of band width from the boundary
+        const ditheringZoneWidth = currentBand.width * 0.38;
+        isInDitheringZone = distanceToBoundary >= 0 && distanceToBoundary <= ditheringZoneWidth;
+
+      } else if (adjBand.endX <= currentBand.startX) {
+        // Adjacent band is to the left - boundary is at current band's left edge
+        boundaryX = currentBand.startX;
+        distanceToBoundary = vertex.x - boundaryX; // Distance from vertex to left boundary
+
+        // Dithering zone extends 38% of band width from the boundary
+        const ditheringZoneWidth = currentBand.width * 0.38;
+        isInDitheringZone = distanceToBoundary >= 0 && distanceToBoundary <= ditheringZoneWidth;
+
+      } else {
+        // This shouldn't happen with non-overlapping bands
+        return;
+      }
+
+    // Debug: (removed for production)
+
+    // Only apply transition probability if vertex is in the dithering zone
+    if (!isInDitheringZone) {
+      return;
+    }
+
+    // Debug: (removed for production)
+
+    // Distance-based transition probability
+    const maxTransitionDistance = currentBand.width * 0.38; // 38% of band width for transition
+    const normalizedDistance = Math.min(Math.abs(distanceToBoundary) / maxTransitionDistance, 1.0);
+
+    // Smooth transition curve: closer to boundary = higher transition probability
+    const transitionStrength = config.ditheringStrength;
+    const transitionProbability = transitionStrength * Math.exp(-Math.pow(normalizedDistance * 2, 2));
+
+    ecosystemProbabilities.push({
+      ecosystem: adjEcosystem,
+      probability: transitionProbability
+    });
+
+    // Reduce original probability by transition probability
+    originalProbability -= transitionProbability;
+  });
+
+  // Ensure probabilities are valid
+  originalProbability = Math.max(0, originalProbability);
+
+  // Add original ecosystem probability
+  ecosystemProbabilities.push({
+    ecosystem: originalEcosystem,
+    probability: originalProbability
+  });
+
+  // Normalize probabilities to sum to 1
+  const totalProbability = ecosystemProbabilities.reduce((sum, ep) => sum + ep.probability, 0);
+  if (totalProbability > 0) {
+    ecosystemProbabilities.forEach(ep => ep.probability /= totalProbability);
   }
 
-  // Keep original ecosystem
-  return vertex.ecosystem;
+  // Select ecosystem based on probabilities
+  const rand = rng();
+  let cumulativeProbability = 0;
+
+  for (const ep of ecosystemProbabilities) {
+    cumulativeProbability += ep.probability;
+    if (rand < cumulativeProbability) {
+      return ep.ecosystem;
+    }
+  }
+
+  // Fallback to original ecosystem
+  return originalEcosystem;
 }
 
 /**

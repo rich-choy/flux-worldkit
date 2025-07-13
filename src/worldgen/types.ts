@@ -95,7 +95,6 @@ export interface WorldGenerationConfig {
 
   // Dithering parameters
   ditheringStrength?: number;
-  gaussianSigma?: number;
 
   // Visualization options
   showZoneBoundaries?: boolean;
