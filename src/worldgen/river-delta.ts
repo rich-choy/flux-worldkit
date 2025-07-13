@@ -428,7 +428,7 @@ function getOppositeDirection(direction: Direction): Direction {
  */
 function isLegitimateEcosystemBridge(fromVertex: WorldVertex, toVertex: WorldVertex, metrics: SpatialMetrics): boolean {
   // Define ecosystem progression (west to east)
-  const ecosystemProgression = [
+  const ecosystemProgression: EcosystemName[] = [
     EcosystemName.STEPPE_ARID,
     EcosystemName.GRASSLAND_TEMPERATE,
     EcosystemName.FOREST_TEMPERATE,

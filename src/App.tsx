@@ -34,32 +34,6 @@ function App() {
           isGenerating={isGenerating}
         />
 
-        {/* View Toggle Controls */}
-        <div className="border-b border-border px-6 py-3 flex justify-end">
-          <div className="flex gap-2">
-            <button
-              onClick={() => setViewMode('graph')}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                viewMode === 'graph'
-                  ? 'bg-accent text-background'
-                  : 'bg-background text-text hover:bg-secondary'
-              }`}
-            >
-              Graph
-            </button>
-            <button
-              onClick={() => setViewMode('analysis')}
-              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-                viewMode === 'analysis'
-                  ? 'bg-accent text-background'
-                  : 'bg-background text-text hover:bg-secondary'
-              }`}
-            >
-              Analysis
-            </button>
-          </div>
-        </div>
-
         {/* Main Content Area */}
         <div className="flex-1 overflow-hidden">
           <Viewport

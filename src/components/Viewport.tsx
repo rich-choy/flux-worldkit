@@ -12,10 +12,35 @@ interface ViewportProps {
 
 export const Viewport: React.FC<ViewportProps> = ({
   world,
-  viewMode
+  viewMode,
+  onViewModeChange
 }) => {
   return (
-    <div className="h-full bg-background">
+    <div className="h-full bg-background relative">
+      {/* Floating View Mode Controls */}
+      <div className="absolute top-6 right-6 z-50 flex gap-2">
+        <button
+          onClick={() => onViewModeChange('graph')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-accent border shadow-lg ${
+            viewMode === 'graph'
+              ? 'bg-accent text-background border-accent'
+              : 'bg-surface text-text hover:bg-surface-bright border-border'
+          }`}
+        >
+          Graph
+        </button>
+        <button
+          onClick={() => onViewModeChange('analysis')}
+          className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-accent border shadow-lg ${
+            viewMode === 'analysis'
+              ? 'bg-accent text-background border-accent'
+              : 'bg-surface text-text hover:bg-surface-bright border-border'
+          }`}
+        >
+          Analysis
+        </button>
+      </div>
+
       {/* Main Content Area */}
       <div className="h-full">
         {viewMode === 'graph' ? (

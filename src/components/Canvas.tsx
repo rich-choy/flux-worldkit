@@ -30,6 +30,9 @@ const NODE_COLORS = {
   'flux:eco:marsh:tropical': '#8b4513'       // Brownish green (saddle brown)
 }
 
+// Reserved space at the top for ecosystem URNs
+const URN_AREA_HEIGHT = 28
+
 export const Canvas: React.FC<CanvasProps> = ({ world, zoom, panX, panY }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -294,11 +297,46 @@ export const Canvas: React.FC<CanvasProps> = ({ world, zoom, panX, panY }) => {
   )
 }
 
-const drawEcosystemBands = (ctx: CanvasRenderingContext2D, world: WorldGenerationResult, transform: (x: number, y: number) => { x: number; y: number }) => {
-  // Find the topmost vertex position to position labels where nodes actually appear
-  const topMostVertexY = Math.min(...world.vertices.map(v => v.y))
-  const labelWorldY = topMostVertexY - 500 // Position labels 500 meters above the topmost nodes
+const drawEcosystemUrns = (ctx: CanvasRenderingContext2D, world: WorldGenerationResult, canvasWidth: number, transform: (x: number, y: number) => { x: number; y: number }) => {
+  const urnY = URN_AREA_HEIGHT - 8 // Position with top margin, closer to bottom of URN area
 
+  // Draw URNs in the dedicated space at the top
+  world.ecosystemBoundaries.forEach((boundary) => {
+    // Calculate horizontal position based on ecosystem boundary
+    const leftX = transform(boundary.startX, 0).x
+    const rightX = transform(boundary.endX, 0).x
+    const labelX = leftX + (rightX - leftX) / 2
+
+    // Only draw if the label would be visible on canvas
+    if (labelX >= 0 && labelX <= canvasWidth) {
+      // Draw ecosystem label with prominent styling
+      ctx.fillStyle = '#ebdbb2' // Gruvbox light text color
+      ctx.font = 'bold 14px monospace'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+
+      // Create a solid black background for maximum legibility
+      const textMetrics = ctx.measureText(boundary.ecosystem)
+      const textWidth = textMetrics.width
+      const textHeight = 16 // Slightly larger for bold text
+      const padding = 8
+
+      ctx.fillStyle = '#000000' // Solid black background
+      ctx.fillRect(labelX - textWidth / 2 - padding, urnY - textHeight / 2 - padding / 2, textWidth + padding * 2, textHeight + padding)
+
+      // Draw a subtle border around the black background
+      ctx.strokeStyle = '#333333'
+      ctx.lineWidth = 1
+      ctx.strokeRect(labelX - textWidth / 2 - padding, urnY - textHeight / 2 - padding / 2, textWidth + padding * 2, textHeight + padding)
+
+      // Draw the text on top
+      ctx.fillStyle = '#ebdbb2' // Gruvbox light text color
+      ctx.fillText(boundary.ecosystem, labelX, urnY)
+    }
+  })
+}
+
+const drawEcosystemBands = (ctx: CanvasRenderingContext2D, world: WorldGenerationResult, transform: (x: number, y: number) => { x: number; y: number }) => {
   // Use actual ecosystem boundaries from world generation
   world.ecosystemBoundaries.forEach((boundary) => {
     // Transform world coordinates to canvas coordinates
@@ -321,54 +359,28 @@ const drawEcosystemBands = (ctx: CanvasRenderingContext2D, world: WorldGeneratio
     ctx.moveTo(canvasX, canvasY)
     ctx.lineTo(canvasX, canvasY + canvasHeight)
     ctx.stroke()
-
-    // Position ecosystem label where graph nodes start to appear
-    const labelPosition = transform(boundary.startX + (boundary.endX - boundary.startX) / 2, labelWorldY)
-    const labelX = labelPosition.x
-    const labelY = labelPosition.y
-
-    // Draw ecosystem label with prominent styling
-    ctx.fillStyle = '#ebdbb2' // Gruvbox light text color
-    ctx.font = 'bold 14px monospace'
-    ctx.textAlign = 'center'
-    ctx.textBaseline = 'middle'
-
-    // Create a solid black background for maximum legibility
-    const textMetrics = ctx.measureText(boundary.ecosystem)
-    const textWidth = textMetrics.width
-    const textHeight = 16 // Slightly larger for bold text
-    const padding = 8
-
-    ctx.fillStyle = '#000000' // Solid black background
-    ctx.fillRect(labelX - textWidth / 2 - padding, labelY - textHeight / 2 - padding / 2, textWidth + padding * 2, textHeight + padding)
-
-    // Draw a subtle border around the black background
-    ctx.strokeStyle = '#333333'
-    ctx.lineWidth = 1
-    ctx.strokeRect(labelX - textWidth / 2 - padding, labelY - textHeight / 2 - padding / 2, textWidth + padding * 2, textHeight + padding)
-
-    // Draw the text on top
-    ctx.fillStyle = '#ebdbb2' // Gruvbox light text color
-    ctx.fillText(boundary.ecosystem, labelX, labelY)
   })
 }
 
 const drawWorld = (ctx: CanvasRenderingContext2D, world: WorldGenerationResult, canvasWidth: number, canvasHeight: number, zoom: number, panX: number, panY: number) => {
   if (!world.vertices.length) return
 
+  // Reserve space at the top for URN labels
+  const availableCanvasHeight = canvasHeight - URN_AREA_HEIGHT
+
   // Find world bounds from the vertices
   const worldBounds = getWorldBounds(world.vertices)
 
   const scaleX = canvasWidth / worldBounds.width
-  const scaleY = canvasHeight / worldBounds.height
+  const scaleY = availableCanvasHeight / worldBounds.height
   const baseScale = Math.min(scaleX, scaleY) * 0.9 // 90% to add padding
   const scale = baseScale * zoom // Apply zoom multiplier
 
-  // Calculate offset to center the world
+  // Calculate offset to center the world in the available space (below URN area)
   const worldCenterX = worldBounds.minX + worldBounds.width / 2
   const worldCenterY = worldBounds.minY + worldBounds.height / 2
   const canvasCenterX = canvasWidth / 2
-  const canvasCenterY = canvasHeight / 2
+  const canvasCenterY = URN_AREA_HEIGHT + (availableCanvasHeight / 2) - 25 // Position graph closer to URN area
 
   // Transform world coordinates to canvas coordinates (with zoom and pan)
   const transform = (x: number, y: number) => ({
@@ -382,6 +394,9 @@ const drawWorld = (ctx: CanvasRenderingContext2D, world: WorldGenerationResult, 
 
   // Draw ecosystem bands first (background)
   drawEcosystemBands(ctx, world, transform)
+
+  // Draw ecosystem URNs in the dedicated space at the top
+  drawEcosystemUrns(ctx, world, canvasWidth, transform)
 
   // Draw connections second (so they appear behind places)
   drawConnections(ctx, world, transform)
