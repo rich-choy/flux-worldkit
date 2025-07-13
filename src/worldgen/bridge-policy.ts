@@ -166,17 +166,22 @@ export function createBridge(
   const bridgeEcosystem = options.bridgeEcosystem || from.ecosystem;
 
   // Create intermediate vertices (path excludes start and end points)
+  // CRITICAL FIX: Force bridge vertices to center line as per cursorrules.md
   for (const pathPoint of path.slice(0, -1)) { // Exclude the end point
-    // Calculate world coordinates
+    // Force bridge vertices to horizontal center line
+    const centerGridY = Math.floor(metrics.gridHeight / 2);
+    const centerWorldY = metrics.placeMargin + centerGridY * metrics.placeSpacing;
+
+    // Calculate world coordinates - X follows path, Y forced to center line
     const worldX = metrics.placeMargin + pathPoint.gridX * metrics.placeSpacing;
-    const worldY = metrics.placeMargin + pathPoint.gridY * metrics.placeSpacing;
+    const worldY = centerWorldY; // Force to center line
 
     const intermediateVertex: WorldVertex = {
       id: `bridge-${vertexId}`,
       x: worldX,
       y: worldY,
       gridX: pathPoint.gridX,
-      gridY: pathPoint.gridY,
+      gridY: centerGridY, // Force to center grid Y
       ecosystem: bridgeEcosystem,
       placeId: `flux:place:bridge-${vertexId}`
     };

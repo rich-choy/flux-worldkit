@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
-import type { WorldGenerationResult } from '~/worldgen/types'
+import type { WorldGenerationResult, WorldVertex } from '~/worldgen/types'
+import type { Place } from 'flux-game'
+import VertexTooltip from './VertexTooltip'
 
 interface CanvasProps {
   world: WorldGenerationResult | null
@@ -32,8 +34,15 @@ export const Canvas: React.FC<CanvasProps> = ({ world, zoom, panX, panY }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
-  const animationRef = useRef<number>(0)
-  const [animationTime, setAnimationTime] = useState(0)
+
+  // Hover detection state
+  const [hoveredVertex, setHoveredVertex] = useState<WorldVertex | null>(null)
+  const [hoveredPlace, setHoveredPlace] = useState<Place | null>(null)
+  const [tooltipPosition, setTooltipPosition] = useState({ x: 0, y: 0 })
+  const [isTooltipVisible, setIsTooltipVisible] = useState(false)
+  const [isTooltipHovered, setIsTooltipHovered] = useState(false)
+  const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+  const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
   // Handle container resizing
   useEffect(() => {
@@ -64,22 +73,7 @@ export const Canvas: React.FC<CanvasProps> = ({ world, zoom, panX, panY }) => {
     }
   }, [])
 
-  // Animation loop for pulsing bridge nodes
-  useEffect(() => {
-    const animate = (timestamp: number) => {
-      setAnimationTime(timestamp)
-      animationRef.current = requestAnimationFrame(animate)
-    }
-
-    animationRef.current = requestAnimationFrame(animate)
-
-    return () => {
-      if (animationRef.current) {
-        cancelAnimationFrame(animationRef.current)
-      }
-    }
-  }, [])
-
+  // Draw canvas when world or display parameters change
   useEffect(() => {
     const canvas = canvasRef.current
     if (!canvas || dimensions.width === 0 || dimensions.height === 0) return
@@ -91,39 +85,211 @@ export const Canvas: React.FC<CanvasProps> = ({ world, zoom, panX, panY }) => {
     ctx.fillStyle = '#1d2021' // Gruvbox hard background
     ctx.fillRect(0, 0, dimensions.width, dimensions.height)
 
-    // Debug logging
-    if (world) {
-      console.log('Canvas: World data:', {
-        places: world.places?.length || 0,
-        vertices: world.vertices?.length || 0,
-        hasVertices: !!world.vertices,
-        firstVertex: world.vertices?.[0],
-        firstPlace: world.places?.[0],
-        canvasDimensions: dimensions
-      })
-    }
-
     // Draw world if available
     if (world && world.vertices?.length > 0) {
-      drawWorld(ctx, world, dimensions.width, dimensions.height, zoom, panX, panY, animationTime)
-    } else if (world) {
-      console.log('Canvas: World exists but no vertices array or empty vertices')
+                  // Debug complete - bridge rule violations confirmed:
+      // 1. Mountain bridging to Forest instead of Jungle (wrong ecosystem progression)
+      // 2. Bridge vertex 4000m off center line (should be ±150m)
+      // 3. Backward connection (NW instead of E)
+
+      drawWorld(ctx, world, dimensions.width, dimensions.height, zoom, panX, panY)
     }
-  }, [world, dimensions.width, dimensions.height, zoom, panX, panY, animationTime])
+  }, [world, dimensions.width, dimensions.height, zoom, panX, panY])
+
+  // Hit detection function
+  const findVertexAtPosition = (canvasX: number, canvasY: number): WorldVertex | null => {
+    if (!world) return null
+
+    // Use the EXACT same transform function as drawWorld
+    const worldBounds = getWorldBounds(world.vertices)
+    const scaleX = dimensions.width / worldBounds.width
+    const scaleY = dimensions.height / worldBounds.height
+    const baseScale = Math.min(scaleX, scaleY) * 0.9 // 90% to add padding
+    const scale = baseScale * zoom // Apply zoom multiplier
+
+    // Calculate offset to center the world
+    const worldCenterX = worldBounds.minX + worldBounds.width / 2
+    const worldCenterY = worldBounds.minY + worldBounds.height / 2
+    const canvasCenterX = dimensions.width / 2
+    const canvasCenterY = dimensions.height / 2
+
+    // Transform world coordinates to canvas coordinates (with zoom and pan)
+    const transform = (x: number, y: number) => ({
+      x: (x - worldCenterX) * scale + canvasCenterX + panX,
+      y: (y - worldCenterY) * scale + canvasCenterY + panY
+    })
+
+    // Check each vertex for hit
+    for (const vertex of world.vertices) {
+      const screenPos = transform(vertex.x, vertex.y)
+      const distance = Math.sqrt(
+        Math.pow(canvasX - screenPos.x, 2) + Math.pow(canvasY - screenPos.y, 2)
+      )
+
+      // Use a larger hit radius for easier hovering
+      const hitRadius = 8
+      if (distance <= hitRadius) {
+        return vertex
+      }
+    }
+
+    return null
+  }
+
+  // Mouse event handlers
+  const handleMouseMove = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!world) return
+
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const rect = canvas.getBoundingClientRect()
+    const canvasX = e.clientX - rect.left
+    const canvasY = e.clientY - rect.top
+
+    const vertex = findVertexAtPosition(canvasX, canvasY)
+
+    if (vertex) {
+      // Found a vertex under cursor
+      // Cancel any pending hide timeout
+      if (hideTimeoutRef.current) {
+        clearTimeout(hideTimeoutRef.current)
+        hideTimeoutRef.current = null
+      }
+
+      if (vertex !== hoveredVertex) {
+        // Clear existing hover timeout
+        if (hoverTimeoutRef.current) {
+          clearTimeout(hoverTimeoutRef.current)
+        }
+
+        // Set new hover timeout (200ms delay)
+        hoverTimeoutRef.current = setTimeout(() => {
+          const place = world.places.find(p => p.id === vertex.placeId)
+          if (place) {
+            setHoveredVertex(vertex)
+            setHoveredPlace(place)
+            setTooltipPosition({ x: e.clientX, y: e.clientY })
+            setIsTooltipVisible(true)
+          }
+        }, 200)
+      } else {
+        // Same vertex, update tooltip position
+        setTooltipPosition({ x: e.clientX, y: e.clientY })
+      }
+    } else {
+      // No vertex under cursor, start hide timeout unless tooltip is hovered
+      if (hoverTimeoutRef.current) {
+        clearTimeout(hoverTimeoutRef.current)
+        hoverTimeoutRef.current = null
+      }
+
+      if (!isTooltipHovered) {
+        // Add delay before hiding tooltip to allow moving to it
+        hideTimeoutRef.current = setTimeout(() => {
+          setIsTooltipVisible(false)
+          setHoveredVertex(null)
+          setHoveredPlace(null)
+        }, 300)
+      }
+    }
+  }
+
+  const handleMouseLeave = () => {
+    if (hoverTimeoutRef.current) {
+      clearTimeout(hoverTimeoutRef.current)
+      hoverTimeoutRef.current = null
+    }
+
+    // Only hide immediately if tooltip is not hovered
+    if (!isTooltipHovered) {
+      setIsTooltipVisible(false)
+      setHoveredVertex(null)
+      setHoveredPlace(null)
+    } else {
+      // Start hide timeout to hide when mouse leaves tooltip
+      hideTimeoutRef.current = setTimeout(() => {
+        if (!isTooltipHovered) {
+          setIsTooltipVisible(false)
+          setHoveredVertex(null)
+          setHoveredPlace(null)
+        }
+      }, 300)
+    }
+  }
+
+  // Handle place updates from tooltip
+  const handlePlaceUpdate = (placeId: string, updates: { name?: string; description?: string }) => {
+    if (!world) return
+
+    // Find and update the place
+    const placeIndex = world.places.findIndex(p => p.id === placeId)
+    if (placeIndex !== -1) {
+      const updatedPlace = { ...world.places[placeIndex] }
+      if (updates.name !== undefined) {
+        updatedPlace.name = updates.name
+      }
+      if (updates.description !== undefined) {
+        updatedPlace.description = updates.description
+      }
+
+      // Update the place in the world (this is a direct mutation for now)
+      world.places[placeIndex] = updatedPlace
+
+      // Update the hovered place state
+      setHoveredPlace(updatedPlace)
+    }
+  }
+
+  // Handle tooltip hover to keep it visible
+  const handleTooltipMouseEnter = () => {
+    setIsTooltipHovered(true)
+    // Cancel any pending hide timeout
+    if (hideTimeoutRef.current) {
+      clearTimeout(hideTimeoutRef.current)
+      hideTimeoutRef.current = null
+    }
+  }
+
+  const handleTooltipMouseLeave = () => {
+    setIsTooltipHovered(false)
+    // Start hide timeout
+    hideTimeoutRef.current = setTimeout(() => {
+      setIsTooltipVisible(false)
+      setHoveredVertex(null)
+      setHoveredPlace(null)
+    }, 300)
+  }
 
   return (
     <div
       ref={containerRef}
-      className="w-full h-full"
+      className="w-full h-full relative"
       style={{ minWidth: '100%', minHeight: '100%' }}
     >
-    <canvas
-      ref={canvasRef}
+      <canvas
+        ref={canvasRef}
         width={dimensions.width}
         height={dimensions.height}
         className="block w-full h-full"
         style={{ width: '100%', height: '100%' }}
+        onMouseMove={handleMouseMove}
+        onMouseLeave={handleMouseLeave}
       />
+
+      {/* Tooltip */}
+      {isTooltipVisible && hoveredVertex && hoveredPlace && (
+        <VertexTooltip
+          vertex={hoveredVertex}
+          place={hoveredPlace}
+          position={tooltipPosition}
+          isVisible={isTooltipVisible}
+          onClose={() => setIsTooltipVisible(false)}
+          onSave={handlePlaceUpdate}
+          onMouseEnter={handleTooltipMouseEnter}
+          onMouseLeave={handleTooltipMouseLeave}
+        />
+      )}
     </div>
   )
 }
@@ -187,19 +353,16 @@ const drawEcosystemBands = (ctx: CanvasRenderingContext2D, world: WorldGeneratio
   })
 }
 
-const drawWorld = (ctx: CanvasRenderingContext2D, world: WorldGenerationResult, canvasWidth: number, canvasHeight: number, zoom: number, panX: number, panY: number, animationTime: number) => {
+const drawWorld = (ctx: CanvasRenderingContext2D, world: WorldGenerationResult, canvasWidth: number, canvasHeight: number, zoom: number, panX: number, panY: number) => {
   if (!world.vertices.length) return
 
   // Find world bounds from the vertices
   const worldBounds = getWorldBounds(world.vertices)
-  console.log('Canvas: World bounds:', worldBounds)
 
   const scaleX = canvasWidth / worldBounds.width
   const scaleY = canvasHeight / worldBounds.height
   const baseScale = Math.min(scaleX, scaleY) * 0.9 // 90% to add padding
   const scale = baseScale * zoom // Apply zoom multiplier
-
-  console.log('Canvas: Scale calculations:', { scaleX, scaleY, baseScale, zoom, finalScale: scale })
 
   // Calculate offset to center the world
   const worldCenterX = worldBounds.minX + worldBounds.width / 2
@@ -216,21 +379,15 @@ const drawWorld = (ctx: CanvasRenderingContext2D, world: WorldGenerationResult, 
   // Test transformation
   const testVertex = world.vertices[0]
   const testCoords = transform(testVertex.x, testVertex.y)
-  console.log('Canvas: Test transformation:', {
-    worldCoords: { x: testVertex.x, y: testVertex.y },
-    canvasCoords: testCoords
-  })
 
   // Draw ecosystem bands first (background)
   drawEcosystemBands(ctx, world, transform)
 
   // Draw connections second (so they appear behind places)
-  drawConnections(ctx, world, transform, animationTime)
+  drawConnections(ctx, world, transform)
 
   // Draw places last (so they appear on top)
-  drawPlaces(ctx, world, transform, animationTime)
-
-  console.log('Canvas: Finished drawing world')
+  drawPlaces(ctx, world, transform)
 }
 
 const getWorldBounds = (vertices: any[]) => {
@@ -303,8 +460,7 @@ const getEcosystemBand = (ecosystem: string): string => {
 const drawConnections = (
   ctx: CanvasRenderingContext2D,
   world: WorldGenerationResult,
-  transform: (x: number, y: number) => { x: number; y: number },
-  animationTime: number
+  transform: (x: number, y: number) => { x: number; y: number }
 ) => {
   ctx.lineWidth = 1 // Thinner lines
   ctx.globalAlpha = 0.62 // 62% opacity as specified
@@ -316,15 +472,7 @@ const drawConnections = (
     vertexMap.set(vertex.placeId, { x: vertex.x, y: vertex.y, ecosystem: vertex.ecosystem })
   })
 
-  console.log('Canvas: Drawing connections:', {
-    totalPlaces: world.places.length,
-    totalVertices: world.vertices.length,
-    vertexMapSize: vertexMap.size,
-    samplePlaceId: world.places[0]?.id,
-    sampleVertexPlaceId: world.vertices[0]?.placeId,
-    samplePlaceExits: world.places[0]?.exits,
-    totalConnections: world.connections?.total || 0
-  })
+  // Drawing connections between places based on exits
 
   let connectionCount = 0
   let placesWithExits = 0
@@ -337,9 +485,6 @@ const drawConnections = (
       const fromVertex = vertexMap.get(place.id)
       if (!fromVertex) {
         failedLookups++
-        if (failedLookups <= 3) {
-          console.log(`Canvas: Failed to find vertex for place ${place.id}`)
-        }
         return
       }
 
@@ -370,11 +515,10 @@ const drawConnections = (
           const toBand = getEcosystemBand(toVertex.ecosystem)
           const isInterBandConnection = fromBand !== toBand
 
-          // Apply pulsing animation and thicker line to inter-ecosystem-BAND connections only
+          // Use thicker line for inter-ecosystem-BAND connections
           if (isInterBandConnection) {
-            const pulseFactor = Math.sin(animationTime * 0.005) * 0.1 + 0.9; // 0.9 to 1.0
             ctx.strokeStyle = edgeColor;
-            ctx.lineWidth = 2.5 * pulseFactor; // Much thicker line for inter-band connections
+            ctx.lineWidth = 2.5; // Much thicker line for inter-band connections
             ctx.beginPath();
             ctx.moveTo(fromCoords.x, fromCoords.y);
             ctx.lineTo(toCoords.x, toCoords.y);
@@ -389,40 +533,14 @@ const drawConnections = (
           }
 
           connectionCount++
-
-          // Log first few connections
-          if (connectionCount <= 3) {
-            console.log(`Canvas: Drew connection ${connectionCount}:`, {
-              from: place.id,
-              to: exit.to,
-              fromEcosystem: fromVertex.ecosystem,
-              toEcosystem: toVertex.ecosystem,
-              fromBand,
-              toBand,
-              isInterBand: isInterBandConnection,
-              fromColor,
-              toColor,
-              edgeColor,
-              fromCoords,
-              toCoords
-            })
-          }
         } else {
           failedLookups++
-          if (failedLookups <= 3) {
-            console.log(`Canvas: Failed to find vertex for exit target ${exit.to}`)
-          }
         }
       })
     }
   })
 
-  console.log('Canvas: Connection summary:', {
-    placesWithExits,
-    totalConnections: connectionCount,
-    failedLookups,
-    alpha: ctx.globalAlpha
-  })
+  // Connection drawing complete
 
   ctx.globalAlpha = 1.0
 }
@@ -430,8 +548,7 @@ const drawConnections = (
 const drawPlaces = (
   ctx: CanvasRenderingContext2D,
   world: WorldGenerationResult,
-  transform: (x: number, y: number) => { x: number; y: number },
-  animationTime: number
+  transform: (x: number, y: number) => { x: number; y: number }
 ) => {
   // Create a map of place IDs to vertices for coordinates
   const vertexMap = new Map<string, any>()
@@ -440,15 +557,7 @@ const drawPlaces = (
     vertexMap.set(vertex.placeId, vertex)
   })
 
-  console.log('Canvas: Drawing places:', {
-    totalPlaces: world.places.length,
-    totalVertices: world.vertices.length,
-    vertexMapSize: vertexMap.size,
-    samplePlaceId: world.places[0]?.id,
-    sampleVertexInMap: vertexMap.has(world.places[0]?.id || ''),
-    samplePlaceExits: world.places[0]?.exits,
-    samplePlaceExitsCount: Object.keys(world.places[0]?.exits || {}).length
-  })
+  // Drawing places based on vertices
 
   let drawnCount = 0
   let bridgeNodeCount = 0
@@ -456,9 +565,6 @@ const drawPlaces = (
   world.places.forEach((place, index) => {
     const vertex = vertexMap.get(place.id)
     if (!vertex) {
-      if (index < 3) { // Log first few misses
-        console.log('Canvas: No vertex found for place:', place.id)
-      }
       return
     }
 
@@ -492,15 +598,9 @@ const drawPlaces = (
     // Get ecosystem color for the node from the vertex data
     const nodeColor = NODE_COLORS[vertex.ecosystem as keyof typeof NODE_COLORS] || '#ebdbb2'
 
-    // Use larger radius and enhanced styling for bridge nodes with pulsing animation
-    let radius = isBridgeNode ? 6 : 3
+    // Use larger radius and enhanced styling for bridge nodes
+    const radius = isBridgeNode ? 6 : 3
     const borderWidth = isBridgeNode ? 2 : 1
-
-    // Apply pulsing animation to bridge nodes
-    if (isBridgeNode) {
-      const pulseFactor = Math.sin(animationTime * 0.003) * 0.3 + 1.0 // Oscillates between 0.7 and 1.3
-      radius = radius * pulseFactor
-    }
 
     // Draw place node
     ctx.fillStyle = nodeColor
@@ -523,20 +623,7 @@ const drawPlaces = (
     }
 
     drawnCount++
-
-    // Log first few drawn places and all bridge nodes
-    if (index < 3 || (isBridgeNode && bridgeNodeCount <= 5)) {
-      console.log(`Canvas: Drew ${isBridgeNode ? 'BRIDGE' : 'normal'} place ${index}:`, {
-        placeId: place.id,
-        ecosystem: vertex.ecosystem,
-        worldCoords: { x: vertex.x, y: vertex.y },
-        canvasCoords: coords,
-        color: nodeColor,
-        radius,
-        isBridge: isBridgeNode
-      })
-    }
   })
 
-  console.log('Canvas: Total places drawn:', drawnCount, `(${bridgeNodeCount} bridge nodes)`)
+  // Finished drawing places
 }

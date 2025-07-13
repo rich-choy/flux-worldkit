@@ -121,6 +121,13 @@ function generateDenseEcosystemConnectivity(
         );
 
         if (!existingEdge) {
+          // STRICT ECOSYSTEM BOUNDARY ENFORCEMENT
+          // Prevent unauthorized cross-ecosystem connections as fallback behavior
+          if (vertex.ecosystem !== targetVertex.ecosystem) {
+            console.warn(`❌ BLOCKED unauthorized cross-ecosystem connection: ${vertex.id} (${vertex.ecosystem.split(':')[2]}) → ${targetVertex.id} (${targetVertex.ecosystem.split(':')[2]})`);
+            continue; // Skip this connection entirely
+          }
+
           // Apply directional bias to connection probability
           const isEastward = dx > 0;
           const isWestward = dx < 0;
@@ -419,7 +426,7 @@ function getOppositeDirection(direction: Direction): Direction {
 /**
  * Add exits to places based on connections with proper directions
  */
-function addExitsToPlaces(places: Place[], connections: Array<{from: string, to: string}>, vertices: WorldVertex[]): void {
+export function addExitsToPlaces(places: Place[], connections: Array<{from: string, to: string}>, vertices: WorldVertex[]): void {
   // Create lookup map for places by vertex ID (not place ID)
   const placeMap = new Map<string, Place>();
   places.forEach(place => {
@@ -444,6 +451,28 @@ function addExitsToPlaces(places: Place[], connections: Array<{from: string, to:
     const toPlace = placeMap.get(to);
 
     if (fromPlace && toPlace) {
+      // STRICT ECOSYSTEM BOUNDARY ENFORCEMENT
+      // Get ecosystem information for both vertices
+      const fromVertex = vertices.find(v => v.id === from);
+      const toVertex = vertices.find(v => v.id === to);
+
+      if (fromVertex && toVertex) {
+        // Check for unauthorized cross-ecosystem connections
+        if (fromVertex.ecosystem !== toVertex.ecosystem) {
+          // Allow ONLY jungle ↔ marsh connections (marsh inherits jungle connectivity)
+          const isJungleMarshConnection =
+            (fromVertex.ecosystem === EcosystemName.JUNGLE_TROPICAL && toVertex.ecosystem === EcosystemName.MARSH_TROPICAL) ||
+            (fromVertex.ecosystem === EcosystemName.MARSH_TROPICAL && toVertex.ecosystem === EcosystemName.JUNGLE_TROPICAL);
+
+          if (!isJungleMarshConnection) {
+            console.warn(`❌ BLOCKED unauthorized cross-ecosystem exit: ${from} (${fromVertex.ecosystem.split(':')[2]}) → ${to} (${toVertex.ecosystem.split(':')[2]})`);
+            failedConnections++;
+            return; // Skip this connection entirely
+          }
+
+          console.log(`✅ ALLOWED jungle-marsh connection: ${from} (${fromVertex.ecosystem.split(':')[2]}) → ${to} (${toVertex.ecosystem.split(':')[2]})`);
+        }
+      }
       // Get coordinates for direction calculation
       const fromCoords = vertexMap.get(from);
       const toCoords = vertexMap.get(to);
@@ -496,7 +525,7 @@ function addExitsToPlaces(places: Place[], connections: Array<{from: string, to:
  * This ensures connectivity while preserving 45-degree angle constraints
  * All disconnected components connect to the eastward delta (easternmost vertices) to maintain west-to-east flow
  */
-function connectDisconnectedSubgraphs(
+export function connectDisconnectedSubgraphs(
   vertices: WorldVertex[],
   connections: Array<{from: string, to: string}>,
   ecosystem: EcosystemName,
@@ -553,7 +582,7 @@ function connectDisconnectedSubgraphs(
   ecosystemVertices.forEach(v => {
     if (!visited.has(v.id)) {
       const component = bfs(v.id);
-      components.push(component);
+        components.push(component);
     }
   });
 
@@ -627,6 +656,12 @@ function connectDisconnectedSubgraphs(
     }
 
         if (bestComponentVertex && bestDeltaVertex) {
+      // STRICT VALIDATION: Both vertices must be in the same ecosystem
+      if (bestComponentVertex.ecosystem !== ecosystem || bestDeltaVertex.ecosystem !== ecosystem) {
+        console.warn(`❌ BLOCKED intra-ecosystem bridge due to ecosystem mismatch: ${bestComponentVertex.id} (${bestComponentVertex.ecosystem.split(':')[2]}) → ${bestDeltaVertex.id} (${bestDeltaVertex.ecosystem.split(':')[2]}) in ${ecosystem.split(':')[2]} context`);
+        continue; // Skip this component connection
+      }
+
       // For marsh ecosystem, use jungle band for pathfinding since marsh is within jungle
       const pathfindingEcosystem = ecosystem === EcosystemName.MARSH_TROPICAL
         ? EcosystemName.JUNGLE_TROPICAL
@@ -640,6 +675,20 @@ function connectDisconnectedSubgraphs(
         nextVertexId,
         metrics
       );
+
+      // FAIL FAST: If pathfinding fails, don't create orphaned bridge vertices
+      if (path.intermediateVertices.length === 0 && path.connections.length === 0) {
+        console.warn(`❌ FAILED to create intra-ecosystem bridge path from ${bestComponentVertex.id} to ${bestDeltaVertex.id} in ${ecosystem.split(':')[2]} - no fallback connections will be created`);
+        continue; // Skip this component connection entirely
+      }
+
+      // VALIDATION: All bridge vertices must have the correct ecosystem
+      for (const pathVertex of path.intermediateVertices) {
+        if (pathVertex.ecosystem !== ecosystem) {
+          console.error(`❌ CRITICAL: Bridge vertex ${pathVertex.id} has wrong ecosystem ${pathVertex.ecosystem.split(':')[2]}, expected ${ecosystem.split(':')[2]}`);
+          throw new Error(`Bridge vertex ecosystem validation failed - this would create unauthorized connections`);
+        }
+      }
 
       // Add new intermediate vertices to our vertex list
       for (const pathVertex of path.intermediateVertices) {
@@ -656,8 +705,33 @@ function connectDisconnectedSubgraphs(
   // Update the original vertices array (this is a bit of a hack, but maintains the interface)
   vertices.splice(0, vertices.length, ...newVertices);
 
-  console.log(`Total connections after bridge creation: ${bridgeConnections.length}`);
-  return bridgeConnections;
+  // FINAL VALIDATION: Ensure no unauthorized cross-ecosystem connections exist
+  const vertexEcosystemMap = new Map<string, EcosystemName>();
+  newVertices.forEach(v => vertexEcosystemMap.set(v.id, v.ecosystem));
+
+  const validConnections = bridgeConnections.filter(conn => {
+    const fromEcosystem = vertexEcosystemMap.get(conn.from);
+    const toEcosystem = vertexEcosystemMap.get(conn.to);
+
+    if (fromEcosystem && toEcosystem && fromEcosystem !== toEcosystem) {
+      console.error(`❌ CRITICAL: Unauthorized cross-ecosystem connection detected: ${conn.from} (${fromEcosystem.split(':')[2]}) → ${conn.to} (${toEcosystem.split(':')[2]})`);
+      return false; // Filter out this connection
+    }
+
+    if (fromEcosystem !== ecosystem || toEcosystem !== ecosystem) {
+      console.error(`❌ CRITICAL: Connection involves vertex outside target ecosystem ${ecosystem.split(':')[2]}: ${conn.from} (${fromEcosystem?.split(':')[2]}) → ${conn.to} (${toEcosystem?.split(':')[2]})`);
+      return false; // Filter out this connection
+    }
+
+    return true; // Keep this connection
+  });
+
+  if (validConnections.length !== bridgeConnections.length) {
+    console.error(`❌ REMOVED ${bridgeConnections.length - validConnections.length} unauthorized connections from ${ecosystem.split(':')[2]} bridge creation`);
+  }
+
+  console.log(`Total connections after bridge creation: ${validConnections.length}`);
+  return validConnections;
 }
 
 /**
@@ -1025,7 +1099,18 @@ function processEcosystemPair(
       };
   }
 
-        // Use the new createBridge function which allows cross-ecosystem connections
+        // VALIDATION: Ensure we're creating forward bridges only (West → East progression)
+    if (easternmostNodeToOrigin.x >= nextDeltaOrigin.x) {
+      console.warn(`Warning: Skipping backward bridge from ${easternmostNodeToOrigin.ecosystem.split(':')[2]} to ${nextDeltaOrigin.ecosystem.split(':')[2]} (violates West→East progression)`);
+      return {
+        intersectionNodes: [],
+        deltaConnections,
+        connectedVertices: [...currentVertices, ...cleanedNextVertices],
+        connectedConnections: [...intraEcosystemConnections]
+      };
+    }
+
+    // Use the new createBridge function which allows cross-ecosystem connections
     console.log(`Creating inter-ecosystem bridge from ${easternmostNodeToOrigin.id} (${easternmostNodeToOrigin.ecosystem.split(':')[2]}) to ${nextDeltaOrigin.id} (${nextDeltaOrigin.ecosystem.split(':')[2]})`);
 
     // Generate a unique vertex ID for any intermediate bridge vertices
@@ -1037,7 +1122,11 @@ function processEcosystemPair(
       bridgeVertexId,
       metrics,
       [...currentVertices, ...cleanedNextVertices], // Pass existing vertices for collision detection
-      { allowCrossEcosystem: true } // Policy explicitly allows cross-ecosystem bridges
+      {
+        allowCrossEcosystem: true, // Policy explicitly allows cross-ecosystem bridges
+        bridgeEcosystem: nextEcosystem, // CRITICAL FIX: Bridge vertices should belong to TARGET ecosystem
+        maxBridgeLength: 3 // Keep bridges short and direct
+      }
     );
 
     // Collect bridge vertices and connections for later inclusion
@@ -1175,26 +1264,45 @@ function analyzeDeltaSpanning(
  */
 function findDeltaOrigin(
   vertices: WorldVertex[],
-  _ecosystem: EcosystemName,
+  ecosystem: EcosystemName,
   metrics: SpatialMetrics
 ): WorldVertex | undefined {
   if (vertices.length === 0) return undefined;
 
   // All delta origins are vertically aligned at the middle of the world height
   const originY = metrics.worldHeightMeters / 2;
-  const tolerance = metrics.placeSpacing / 2; // Allow some tolerance for grid alignment
+  const tolerance = 150; // ±150m tolerance for center line (as per cursorrules.md)
 
-  // Find vertices near the origin y-coordinate
+  // Find vertices near the origin y-coordinate (center line)
   const originCandidates = vertices.filter(v =>
     Math.abs(v.y - originY) <= tolerance
   );
 
   if (originCandidates.length === 0) {
-    // Fallback: find the vertex closest to the origin y-coordinate
-    const closestToOriginY = vertices.reduce((closest, vertex) =>
-      Math.abs(vertex.y - originY) < Math.abs(closest.y - originY) ? vertex : closest
-    );
-    return closestToOriginY;
+    // Create a vertex on the center line if none exists (CRITICAL FIX)
+    const boundary = getEcosystemBoundary(ecosystem, metrics);
+    const westmostCol = boundary.startCol;
+
+    // Calculate center line grid position
+    const centerGridY = Math.floor(metrics.gridHeight / 2);
+    const centerWorldY = metrics.placeMargin + centerGridY * metrics.placeSpacing;
+    const westWorldX = metrics.placeMargin + westmostCol * metrics.placeSpacing;
+
+    console.log(`Creating center line origin for ${ecosystem.split(':')[2]} at (${westmostCol}, ${centerGridY})`);
+
+    const originVertex: WorldVertex = {
+      id: `origin-${ecosystem.split(':')[2]}-${westmostCol}-${centerGridY}`,
+      x: westWorldX,
+      y: centerWorldY,
+      gridX: westmostCol,
+      gridY: centerGridY,
+      ecosystem: ecosystem,
+      placeId: `flux:place:origin-${ecosystem.split(':')[2]}-${westmostCol}-${centerGridY}`
+    };
+
+    // Add to vertices array
+    vertices.push(originVertex);
+    return originVertex;
   }
 
   // Among candidates at the origin y-coordinate, find the westernmost (leftmost)
@@ -1516,7 +1624,7 @@ export function generateWorld(config: WorldGenerationConfig): WorldGenerationRes
     // Find the easternmost column within the Jungle ecosystem only
     const jungleMaxGridX = Math.max(...jungleVertices.map(v => v.gridX));
 
-    let marshVerticesCount = 0;
+  let marshVerticesCount = 0;
 
     finalVertices.forEach(vertex => {
       // Assign marsh ecosystem to vertices at the easternmost column of the Jungle ecosystem only
@@ -1524,10 +1632,10 @@ export function generateWorld(config: WorldGenerationConfig): WorldGenerationRes
       if (vertex.ecosystem === jungleEcosystem &&
           vertex.gridX === jungleMaxGridX &&
           !bridgeVertexIds.has(vertex.id)) {
-        vertex.ecosystem = EcosystemName.MARSH_TROPICAL;
-        marshVerticesCount++;
-      }
-    });
+      vertex.ecosystem = EcosystemName.MARSH_TROPICAL;
+      marshVerticesCount++;
+    }
+  });
 
     console.log(`Assigned ${marshVerticesCount} vertices to marsh ecosystem within jungle's eastern boundary`);
     console.log(`Jungle easternmost column: ${jungleMaxGridX}`);
