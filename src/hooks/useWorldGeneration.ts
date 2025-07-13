@@ -1,5 +1,5 @@
 import { useState, useRef, useCallback } from 'react';
-import type { WorldGenerationResult, WorldGenerationConfig } from '~/worldgen/types';
+import type { WorldGenerationResult, WorldGenerationConfig } from '../worldgen/types';
 import type { WorldGenerationMessage, WorldGenerationResponse } from '~/workers/worldgen.worker';
 
 interface UseWorldGenerationReturn {
@@ -47,12 +47,12 @@ export const useWorldGeneration = (): UseWorldGenerationReturn => {
           // Debug logging to see what we received
           const worldResult = payload as WorldGenerationResult
           console.log('Hook: Received world from worker:', {
-            hasPlaces: !!worldResult.places,
-            placesCount: worldResult.places?.length || 0,
             hasVertices: !!worldResult.vertices,
             verticesCount: worldResult.vertices?.length || 0,
-            hasConnections: !!worldResult.connections,
+            hasEdges: !!worldResult.edges,
+            edgesCount: worldResult.edges?.length || 0,
             hasConfig: !!worldResult.config,
+            hasStats: !!worldResult.ditheringStats,
             fullResult: worldResult
           })
 

@@ -1,6 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { DEFAULT_SPATIAL_CONFIG, calculateSpatialMetrics } from '~/worldgen/types';
-import type { WorldGenerationConfig } from '~/worldgen/types';
+import type { WorldGenerationConfig } from '../worldgen/types';
 
 interface ControlsProps {
   onGenerateWorld: (config: WorldGenerationConfig) => void
@@ -10,31 +9,34 @@ interface ControlsProps {
 const getRandomSeed = () => Math.floor(Math.random() * 1000000);
 
 export const Controls: React.FC<ControlsProps> = ({ onGenerateWorld, isGenerating }) => {
-  const [worldWidth, setWorldWidth] = useState(DEFAULT_SPATIAL_CONFIG.worldWidth) // 14.5 km
-  const [worldHeight, setWorldHeight] = useState(DEFAULT_SPATIAL_CONFIG.worldHeight) // 9.0 km
+  const [worldWidthKm, setWorldWidthKm] = useState(14.5) // 14.5 km
+  const [worldHeightKm, setWorldHeightKm] = useState(9.0) // 9.0 km
   const [branchingFactor, setBranchingFactor] = useState(1.0); // Default branching factor
+  const [ditheringStrength, setDitheringStrength] = useState(1.0); // Default dithering strength
+  const [showZoneBoundaries, setShowZoneBoundaries] = useState(false); // Show ecosystem boundaries
+  const [showFlowDirection, setShowFlowDirection] = useState(false); // Show flow direction arrows
   const [seed, setSeed] = useState(getRandomSeed());
 
-  // Calculate spatial metrics for display
-  const spatialMetrics = useMemo(() => {
-    const config: WorldGenerationConfig = {
-      worldWidth,
-      worldHeight,
-      placeSize: DEFAULT_SPATIAL_CONFIG.placeSize,
-      placeMargin: DEFAULT_SPATIAL_CONFIG.placeMargin,
-      seed
-    }
-    return calculateSpatialMetrics(config)
-  }, [worldWidth, worldHeight, seed])
+  // Calculate grid dimensions for display
+  const gridDimensions = useMemo(() => {
+    const placeSpacing = 300; // 300m spacing
+    const placeMargin = 200; // 200m margin
+    const worldWidthMeters = worldWidthKm * 1000;
+    const worldHeightMeters = worldHeightKm * 1000;
+    const gridWidth = Math.floor((worldWidthMeters - 2 * placeMargin) / placeSpacing);
+    const gridHeight = Math.floor((worldHeightMeters - 2 * placeMargin) / placeSpacing);
+    return { gridWidth, gridHeight };
+  }, [worldWidthKm, worldHeightKm])
 
   const handleGenerateClick = () => {
     const config: WorldGenerationConfig = {
-      worldWidth,
-      worldHeight,
-      placeSize: DEFAULT_SPATIAL_CONFIG.placeSize,
-      placeMargin: DEFAULT_SPATIAL_CONFIG.placeMargin,
-      seed,
-      globalBranchingFactor: branchingFactor
+      worldWidthKm,
+      worldHeightKm,
+      branchingFactor,
+      ditheringStrength,
+      showZoneBoundaries,
+      showFlowDirection,
+      seed
     }
     console.log('Generate World button clicked! Config:', config)
     onGenerateWorld(config)
@@ -49,13 +51,13 @@ export const Controls: React.FC<ControlsProps> = ({ onGenerateWorld, isGeneratin
   const handleWidthChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = Number(e.target.value);
     console.log('World width changed to:', newValue);
-    setWorldWidth(newValue);
+    setWorldWidthKm(newValue);
   }
 
   const handleHeightChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const newValue = Number(e.target.value);
     console.log('World height changed to:', newValue);
-    setWorldHeight(newValue);
+    setWorldHeightKm(newValue);
   }
 
   const handleBranchingFactorChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -80,7 +82,7 @@ export const Controls: React.FC<ControlsProps> = ({ onGenerateWorld, isGeneratin
             Generate spatial worlds using river delta patterns
           </p>
           <p className="text-text-dim text-xs mt-1">
-            Capacity: ~{spatialMetrics.totalPlacesCapacity.toLocaleString()} places ({spatialMetrics.gridWidth}×{spatialMetrics.gridHeight} grid)
+            Grid: {gridDimensions.gridWidth}×{gridDimensions.gridHeight} ({(gridDimensions.gridWidth * gridDimensions.gridHeight).toLocaleString()} vertices)
           </p>
         </div>
 
@@ -98,13 +100,13 @@ export const Controls: React.FC<ControlsProps> = ({ onGenerateWorld, isGeneratin
                 min="5"
                 max="50"
                 step="0.5"
-                value={worldWidth}
+                value={worldWidthKm}
                 onChange={handleWidthChange}
                 className="w-32 h-2 bg-surface rounded-lg appearance-none cursor-pointer slider"
                 disabled={isGenerating}
               />
               <span className="text-sm text-text-dim font-mono w-16 text-right">
-                {worldWidth.toFixed(1)}
+                {worldWidthKm.toFixed(1)}
               </span>
             </div>
           </div>
@@ -121,13 +123,13 @@ export const Controls: React.FC<ControlsProps> = ({ onGenerateWorld, isGeneratin
                 min="3"
                 max="30"
                 step="0.5"
-                value={worldHeight}
+                value={worldHeightKm}
                 onChange={handleHeightChange}
                 className="w-32 h-2 bg-surface rounded-lg appearance-none cursor-pointer slider"
                 disabled={isGenerating}
               />
               <span className="text-sm text-text-dim font-mono w-16 text-right">
-                {worldHeight.toFixed(1)}
+                {worldHeightKm.toFixed(1)}
               </span>
             </div>
           </div>

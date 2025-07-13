@@ -1,6 +1,6 @@
 // Web Worker for World Generation - Updated for river delta system
-import { generateWorld } from '../worldgen/river-delta'
-import type { WorldGenerationConfig, WorldGenerationResult } from '../worldgen/types'
+import { generateWorld } from '../worldgen/index'
+import type { WorldGenerationConfig, WorldGenerationResult } from '../worldgen/index'
 
 // Debug: Log what we imported to verify types
 console.log('Worker: Imported generateWorld function:', typeof generateWorld)
@@ -28,22 +28,20 @@ self.addEventListener('message', (event: MessageEvent<WorldGenerationMessage>) =
       console.log('Worker: Generating world with config:', config)
       const world = generateWorld(config)
       console.log('Worker: World generated successfully:', {
-        actualPlaces: world.places?.length || 0,
         vertices: world.vertices?.length || 0,
-        connections: world.connections?.total || 0,
-        worldSize: `${config.worldWidth}x${config.worldHeight}km`
+        edges: world.edges?.length || 0,
+        worldSize: `${config.worldWidthKm}x${config.worldHeightKm}km`
       })
 
       // Debug: Check what we're about to send
       console.log('Worker: About to send result:', {
-        hasPlaces: !!world.places,
-        placesCount: world.places?.length || 0,
         hasVertices: !!world.vertices,
         verticesCount: world.vertices?.length || 0,
-        hasConnections: !!world.connections,
+        hasEdges: !!world.edges,
+        edgesCount: world.edges?.length || 0,
         hasConfig: !!world.config,
-        samplePlace: world.places?.[0],
-        sampleVertex: world.vertices?.[0]
+        sampleVertex: world.vertices?.[0],
+        sampleEdge: world.edges?.[0]
       })
 
       // Send the result back to the main thread

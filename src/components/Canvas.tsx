@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
-import type { WorldGenerationResult, WorldVertex } from '~/worldgen/types'
+import type { WorldGenerationResult, WorldVertex } from '../worldgen/types'
 import type { Place } from 'flux-game'
 import VertexTooltip from './VertexTooltip'
 
@@ -12,22 +12,32 @@ interface CanvasProps {
 
 // Gruvbox Dark Material colors for ecosystems
 const ECOSYSTEM_COLORS = {
-  'flux:eco:steppe:arid': '#d79921',        // Yellow - dry steppe
-  'flux:eco:grassland:temperate': '#b8bb26', // Green - grassland
-  'flux:eco:forest:temperate': '#689d6a',    // Aqua - forest
-  'flux:eco:mountain:arid': '#928374',        // Gray - mountain
-  'flux:eco:jungle:tropical': '#98971a',     // Dark green - jungle
-  'flux:eco:marsh:tropical': '#8ec07c'       // Light aqua - marsh
+  'steppe': '#d79921',        // Yellow - dry steppe
+  'grassland': '#b8bb26',     // Green - grassland
+  'forest': '#689d6a',        // Aqua - forest
+  'mountain': '#928374',      // Gray - mountain
+  'jungle': '#98971a',        // Dark green - jungle
+  'marsh': '#8ec07c'          // Light aqua - marsh
 }
 
 // Ecosystem-specific node colors - fully saturated
 const NODE_COLORS = {
-  'flux:eco:steppe:arid': '#ff0000',         // Fully saturated red
-  'flux:eco:grassland:temperate': '#ffff00', // Fully saturated yellow
-  'flux:eco:forest:temperate': '#00ff00',    // Fully saturated green
-  'flux:eco:mountain:arid': '#ff0000',       // Fully saturated red (same as steppe)
-  'flux:eco:jungle:tropical': '#00ff00',     // Fully saturated green (same as forest)
-  'flux:eco:marsh:tropical': '#8b4513'       // Brownish green (saddle brown)
+  'steppe': '#ff0000',         // Fully saturated red
+  'grassland': '#ffff00',      // Fully saturated yellow
+  'forest': '#00ff00',         // Fully saturated green
+  'mountain': '#ff0000',       // Fully saturated red (same as steppe)
+  'jungle': '#00ff00',         // Fully saturated green (same as forest)
+  'marsh': '#8b4513'           // Brownish green (saddle brown)
+}
+
+// Map ecosystem types to URNs for display
+const ECOSYSTEM_URNS = {
+  'steppe': 'flux:eco:steppe:arid',
+  'grassland': 'flux:eco:grassland:temperate',
+  'forest': 'flux:eco:forest:temperate',
+  'mountain': 'flux:eco:mountain:arid',
+  'jungle': 'flux:eco:jungle:tropical',
+  'marsh': 'flux:eco:marsh:tropical'
 }
 
 // Reserved space at the top for ecosystem URNs
@@ -168,7 +178,8 @@ export const Canvas: React.FC<CanvasProps> = ({ world, zoom, panX, panY }) => {
 
         // Set new hover timeout (200ms delay)
         hoverTimeoutRef.current = setTimeout(() => {
-          const place = world.places.find(p => p.id === vertex.placeId)
+          // Note: In the new structure, vertices don't have separate places
+          const place = null
           if (place) {
             setHoveredVertex(vertex)
             setHoveredPlace(place)
@@ -221,27 +232,13 @@ export const Canvas: React.FC<CanvasProps> = ({ world, zoom, panX, panY }) => {
     }
   }
 
-  // Handle place updates from tooltip
-  const handlePlaceUpdate = (placeId: string, updates: { name?: string; description?: string }) => {
+  // Handle vertex updates from tooltip (placeholder - no editable places in new structure)
+  const handlePlaceUpdate = (vertexId: string, updates: { name?: string; description?: string }) => {
     if (!world) return
 
-    // Find and update the place
-    const placeIndex = world.places.findIndex(p => p.id === placeId)
-    if (placeIndex !== -1) {
-      const updatedPlace = { ...world.places[placeIndex] }
-      if (updates.name !== undefined) {
-        updatedPlace.name = updates.name
-      }
-      if (updates.description !== undefined) {
-        updatedPlace.description = updates.description
-      }
-
-      // Update the place in the world (this is a direct mutation for now)
-      world.places[placeIndex] = updatedPlace
-
-      // Update the hovered place state
-      setHoveredPlace(updatedPlace)
-    }
+    // Note: In the new structure, vertices don't have separate editable places
+    // This functionality would need to be implemented differently if needed
+    console.log('Vertex update requested:', vertexId, updates)
   }
 
   // Handle tooltip hover to keep it visible
@@ -301,10 +298,10 @@ const drawEcosystemUrns = (ctx: CanvasRenderingContext2D, world: WorldGeneration
   const urnY = URN_AREA_HEIGHT - 8 // Position with top margin, closer to bottom of URN area
 
   // Draw URNs in the dedicated space at the top
-  world.ecosystemBoundaries.forEach((boundary) => {
-    // Calculate horizontal position based on ecosystem boundary
-    const leftX = transform(boundary.startX, 0).x
-    const rightX = transform(boundary.endX, 0).x
+  world.ecosystemBands.forEach((band) => {
+    // Calculate horizontal position based on ecosystem band
+    const leftX = transform(band.startX, 0).x
+    const rightX = transform(band.endX, 0).x
     const labelX = leftX + (rightX - leftX) / 2
 
     // Only draw if the label would be visible on canvas
@@ -316,7 +313,8 @@ const drawEcosystemUrns = (ctx: CanvasRenderingContext2D, world: WorldGeneration
       ctx.textBaseline = 'middle'
 
       // Create a solid black background for maximum legibility
-      const textMetrics = ctx.measureText(boundary.ecosystem)
+      const urnText = ECOSYSTEM_URNS[band.ecosystem as keyof typeof ECOSYSTEM_URNS]
+      const textMetrics = ctx.measureText(urnText)
       const textWidth = textMetrics.width
       const textHeight = 16 // Slightly larger for bold text
       const padding = 8
@@ -331,17 +329,18 @@ const drawEcosystemUrns = (ctx: CanvasRenderingContext2D, world: WorldGeneration
 
       // Draw the text on top
       ctx.fillStyle = '#ebdbb2' // Gruvbox light text color
-      ctx.fillText(boundary.ecosystem, labelX, urnY)
+      ctx.fillText(urnText, labelX, urnY)
     }
   })
 }
 
 const drawEcosystemBands = (ctx: CanvasRenderingContext2D, world: WorldGenerationResult, transform: (x: number, y: number) => { x: number; y: number }) => {
-  // Use actual ecosystem boundaries from world generation
-  world.ecosystemBoundaries.forEach((boundary) => {
+  // Use actual ecosystem bands from world generation
+  world.ecosystemBands.forEach((band) => {
     // Transform world coordinates to canvas coordinates
-    const topLeft = transform(boundary.startX, boundary.startY)
-    const bottomRight = transform(boundary.endX, boundary.endY)
+    // Ecosystem bands span the full height of the world
+    const topLeft = transform(band.startX, 0)
+    const bottomRight = transform(band.endX, world.spatialMetrics.worldHeightMeters)
 
     const canvasX = topLeft.x
     const canvasY = topLeft.y
@@ -349,11 +348,11 @@ const drawEcosystemBands = (ctx: CanvasRenderingContext2D, world: WorldGeneratio
     const canvasHeight = bottomRight.y - topLeft.y
 
     // Draw band background with low opacity
-    ctx.fillStyle = ECOSYSTEM_COLORS[boundary.ecosystem as keyof typeof ECOSYSTEM_COLORS] + '20' // 20 = ~12% opacity
+    ctx.fillStyle = ECOSYSTEM_COLORS[band.ecosystem as keyof typeof ECOSYSTEM_COLORS] + '20' // 20 = ~12% opacity
     ctx.fillRect(canvasX, canvasY, canvasWidth, canvasHeight)
 
     // Draw band border
-    ctx.strokeStyle = ECOSYSTEM_COLORS[boundary.ecosystem as keyof typeof ECOSYSTEM_COLORS] + '40' // 40 = ~25% opacity
+    ctx.strokeStyle = ECOSYSTEM_COLORS[band.ecosystem as keyof typeof ECOSYSTEM_COLORS] + '40' // 40 = ~25% opacity
     ctx.lineWidth = 1
     ctx.beginPath()
     ctx.moveTo(canvasX, canvasY)
@@ -402,7 +401,7 @@ const drawWorld = (ctx: CanvasRenderingContext2D, world: WorldGenerationResult, 
   drawConnections(ctx, world, transform)
 
   // Draw places last (so they appear on top)
-  drawPlaces(ctx, world, transform)
+  drawVertices(ctx, world, transform)
 }
 
 const getWorldBounds = (vertices: any[]) => {
@@ -472,173 +471,82 @@ const getEcosystemBand = (ecosystem: string): string => {
   return 'unknown'
 }
 
+// Update the drawConnections function to use world.edges instead of world.connections
 const drawConnections = (
   ctx: CanvasRenderingContext2D,
   world: WorldGenerationResult,
   transform: (x: number, y: number) => { x: number; y: number }
 ) => {
-  ctx.lineWidth = 1 // Thinner lines
-  ctx.globalAlpha = 0.62 // 62% opacity as specified
-
-  // Create a map of place IDs to vertex coordinates and ecosystems for quick lookup
-  const vertexMap = new Map<string, { x: number; y: number; ecosystem: string }>()
+  // Create a vertex map for efficient lookup
+  const vertexMap = new Map<string, WorldVertex>()
   world.vertices.forEach(vertex => {
-    // Use the placeId directly from the vertex
-    vertexMap.set(vertex.placeId, { x: vertex.x, y: vertex.y, ecosystem: vertex.ecosystem })
+    vertexMap.set(vertex.id, vertex)
   })
 
-  // Drawing connections between places based on exits
+  // Draw edges (river connections)
+  world.edges.forEach(edge => {
+    const fromVertex = vertexMap.get(edge.fromVertexId)
+    const toVertex = vertexMap.get(edge.toVertexId)
 
-  let connectionCount = 0
-  let placesWithExits = 0
-  let failedLookups = 0
+    if (!fromVertex || !toVertex) return
 
-  // Draw connections between places based on exits
-  world.places.forEach((place) => {
-    if (place.exits && Object.keys(place.exits).length > 0) {
-      placesWithExits++
-      const fromVertex = vertexMap.get(place.id)
-      if (!fromVertex) {
-        failedLookups++
-        return
-      }
+    const fromPos = transform(fromVertex.x, fromVertex.y)
+    const toPos = transform(toVertex.x, toVertex.y)
 
-      const fromCoords = transform(fromVertex.x, fromVertex.y)
+    // Draw connection line
+    ctx.strokeStyle = '#458588' // Gruvbox blue for river connections
+    ctx.lineWidth = 2
+    ctx.beginPath()
+    ctx.moveTo(fromPos.x, fromPos.y)
+    ctx.lineTo(toPos.x, toPos.y)
+    ctx.stroke()
 
-      Object.values(place.exits).forEach((exit: any) => {
-        const toVertex = vertexMap.get(exit.to)
-        if (toVertex) {
-          const toCoords = transform(toVertex.x, toVertex.y)
+    // Draw flow direction arrow if enabled
+    if (world.config.showFlowDirection) {
+      const arrowSize = 8
+      const angle = Math.atan2(toPos.y - fromPos.y, toPos.x - fromPos.x)
+      const arrowX = toPos.x - arrowSize * Math.cos(angle)
+      const arrowY = toPos.y - arrowSize * Math.sin(angle)
 
-          // Get colors for both ecosystems
-          const fromColor = NODE_COLORS[fromVertex.ecosystem as keyof typeof NODE_COLORS] || '#ebdbb2'
-          const toColor = NODE_COLORS[toVertex.ecosystem as keyof typeof NODE_COLORS] || '#ebdbb2'
-
-          // Create composite color for the edge
-          let edgeColor: string
-          if (fromVertex.ecosystem === toVertex.ecosystem) {
-            // Same ecosystem - use muted version of the ecosystem color
-            edgeColor = muteColor(fromColor)
-          } else {
-            // Different ecosystems - blend the colors and mute
-            const blendedColor = blendColors(fromColor, toColor)
-            edgeColor = muteColor(blendedColor)
-          }
-
-          // Check if this is an inter-ecosystem-BAND connection (not just inter-ecosystem)
-          const fromBand = getEcosystemBand(fromVertex.ecosystem)
-          const toBand = getEcosystemBand(toVertex.ecosystem)
-          const isInterBandConnection = fromBand !== toBand
-
-          // Use thicker line for inter-ecosystem-BAND connections
-          if (isInterBandConnection) {
-            ctx.strokeStyle = edgeColor;
-            ctx.lineWidth = 2.5; // Much thicker line for inter-band connections
-            ctx.beginPath();
-            ctx.moveTo(fromCoords.x, fromCoords.y);
-            ctx.lineTo(toCoords.x, toCoords.y);
-            ctx.stroke();
-          } else {
-            ctx.strokeStyle = edgeColor;
-            ctx.lineWidth = 1; // Normal line width for same band
-            ctx.beginPath();
-            ctx.moveTo(fromCoords.x, fromCoords.y);
-            ctx.lineTo(toCoords.x, toCoords.y);
-            ctx.stroke();
-          }
-
-          connectionCount++
-        } else {
-          failedLookups++
-        }
-      })
+      ctx.fillStyle = '#458588'
+      ctx.beginPath()
+      ctx.moveTo(toPos.x, toPos.y)
+      ctx.lineTo(arrowX - arrowSize * 0.3 * Math.cos(angle - Math.PI / 6), arrowY - arrowSize * 0.3 * Math.sin(angle - Math.PI / 6))
+      ctx.lineTo(arrowX - arrowSize * 0.3 * Math.cos(angle + Math.PI / 6), arrowY - arrowSize * 0.3 * Math.sin(angle + Math.PI / 6))
+      ctx.closePath()
+      ctx.fill()
     }
   })
-
-  // Connection drawing complete
-
-  ctx.globalAlpha = 1.0
 }
 
-const drawPlaces = (
+// Update the drawPlaces function to draw vertices instead
+const drawVertices = (
   ctx: CanvasRenderingContext2D,
   world: WorldGenerationResult,
   transform: (x: number, y: number) => { x: number; y: number }
 ) => {
-  // Create a map of place IDs to vertices for coordinates
-  const vertexMap = new Map<string, any>()
   world.vertices.forEach(vertex => {
-    // Use the placeId directly from the vertex
-    vertexMap.set(vertex.placeId, vertex)
-  })
+    const pos = transform(vertex.x, vertex.y)
 
-  // Drawing places based on vertices
-
-  let drawnCount = 0
-  let bridgeNodeCount = 0
-
-  world.places.forEach((place, index) => {
-    const vertex = vertexMap.get(place.id)
-    if (!vertex) {
-      return
-    }
-
-    const coords = transform(vertex.x, vertex.y)
-
-    // Check if this is an inter-ecosystem-BAND bridge node (not just inter-ecosystem)
-    // Only highlight REGULAR vertices that connect different ecosystem bands
-    // Exclude intra-ecosystem bridge vertices (those with id starting with 'bridge-')
-    const placeEcosystem = vertex.ecosystem
-    const placeBand = getEcosystemBand(placeEcosystem)
-    let isBridgeNode = false
-
-    // Only consider regular vertices (not intra-ecosystem bridge vertices) for bridge highlighting
-    if (!vertex.id.startsWith('bridge-') && place.exits && Object.keys(place.exits).length > 0) {
-      for (const exit of Object.values(place.exits)) {
-        const targetVertex = vertexMap.get((exit as any).to)
-        if (targetVertex) {
-          const targetBand = getEcosystemBand(targetVertex.ecosystem)
-          if (targetBand !== placeBand) {
-            isBridgeNode = true
-            break
-          }
-        }
-      }
-    }
-
-    if (isBridgeNode) {
-      bridgeNodeCount++
-    }
-
-    // Get ecosystem color for the node from the vertex data
-    const nodeColor = NODE_COLORS[vertex.ecosystem as keyof typeof NODE_COLORS] || '#ebdbb2'
-
-    // Use larger radius and enhanced styling for bridge nodes
-    const radius = isBridgeNode ? 6 : 3
-    const borderWidth = isBridgeNode ? 2 : 1
-
-    // Draw place node
-    ctx.fillStyle = nodeColor
+    // Draw vertex circle
+    const radius = vertex.isOrigin ? 8 : 6
+    ctx.fillStyle = NODE_COLORS[vertex.ecosystem as keyof typeof NODE_COLORS] || '#d79921'
     ctx.beginPath()
-    ctx.arc(coords.x, coords.y, radius, 0, 2 * Math.PI)
+    ctx.arc(pos.x, pos.y, radius, 0, 2 * Math.PI)
     ctx.fill()
 
-    // Draw border with enhanced styling for bridge nodes
-    ctx.strokeStyle = isBridgeNode ? '#fe8019' : '#fbf1c7' // Orange for bridges, normal color for others
-    ctx.lineWidth = borderWidth
+    // Draw border
+    ctx.strokeStyle = vertex.isOrigin ? '#fb4934' : '#1d2021' // Red for origin, dark for others
+    ctx.lineWidth = vertex.isOrigin ? 3 : 2
     ctx.stroke()
 
-    // Add an extra inner ring for bridge nodes to make them more prominent
-    if (isBridgeNode) {
-      ctx.strokeStyle = '#fbf1c7'
-      ctx.lineWidth = 1
-      ctx.beginPath()
-      ctx.arc(coords.x, coords.y, radius - 1.5, 0, 2 * Math.PI)
-      ctx.stroke()
+    // Draw vertex ID for debugging (small text)
+    if (world.config.showFlowDirection) {
+      ctx.fillStyle = '#ebdbb2'
+      ctx.font = '10px monospace'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(vertex.id, pos.x, pos.y + radius + 12)
     }
-
-    drawnCount++
   })
-
-  // Finished drawing places
 }
