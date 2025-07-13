@@ -424,9 +424,51 @@ function getOppositeDirection(direction: Direction): Direction {
 }
 
 /**
+ * Check if a cross-ecosystem connection is a legitimate bridge between adjacent ecosystems
+ */
+function isLegitimateEcosystemBridge(fromVertex: WorldVertex, toVertex: WorldVertex, metrics: SpatialMetrics): boolean {
+  // Define ecosystem progression (west to east)
+  const ecosystemProgression = [
+    EcosystemName.STEPPE_ARID,
+    EcosystemName.GRASSLAND_TEMPERATE,
+    EcosystemName.FOREST_TEMPERATE,
+    EcosystemName.MOUNTAIN_ARID,
+    EcosystemName.JUNGLE_TROPICAL
+  ];
+
+  // Handle marsh as part of jungle ecosystem for bridge validation
+  const normalizeEcosystem = (ecosystem: EcosystemName): EcosystemName => {
+    return ecosystem === EcosystemName.MARSH_TROPICAL ? EcosystemName.JUNGLE_TROPICAL : ecosystem;
+  };
+
+  const fromEcosystem = normalizeEcosystem(fromVertex.ecosystem);
+  const toEcosystem = normalizeEcosystem(toVertex.ecosystem);
+
+  const fromIndex = ecosystemProgression.indexOf(fromEcosystem);
+  const toIndex = ecosystemProgression.indexOf(toEcosystem);
+
+  // Must be adjacent ecosystems (difference of 1)
+  if (Math.abs(fromIndex - toIndex) !== 1) {
+    return false;
+  }
+
+  // Check if vertices are on the ecosystem boundaries
+  // Note: getEcosystemBoundary only accepts main ecosystems, not marsh
+  const fromBoundary = getEcosystemBoundary(fromEcosystem as any, metrics);
+  const toBoundary = getEcosystemBoundary(toEcosystem as any, metrics);
+
+  // From vertex should be on the easternmost column of its ecosystem
+  // To vertex should be on the westernmost column of its ecosystem
+  const fromIsEasternBoundary = fromVertex.gridX === fromBoundary.endCol - 1;
+  const toIsWesternBoundary = toVertex.gridX === toBoundary.startCol;
+
+  return fromIsEasternBoundary && toIsWesternBoundary;
+}
+
+/**
  * Add exits to places based on connections with proper directions
  */
-export function addExitsToPlaces(places: Place[], connections: Array<{from: string, to: string}>, vertices: WorldVertex[]): void {
+export function addExitsToPlaces(places: Place[], connections: Array<{from: string, to: string}>, vertices: WorldVertex[], metrics: SpatialMetrics): void {
   // Create lookup map for places by vertex ID (not place ID)
   const placeMap = new Map<string, Place>();
   places.forEach(place => {
@@ -451,7 +493,7 @@ export function addExitsToPlaces(places: Place[], connections: Array<{from: stri
     const toPlace = placeMap.get(to);
 
     if (fromPlace && toPlace) {
-      // STRICT ECOSYSTEM BOUNDARY ENFORCEMENT
+      // ECOSYSTEM BOUNDARY ENFORCEMENT WITH BRIDGE SUPPORT
       // Get ecosystem information for both vertices
       const fromVertex = vertices.find(v => v.id === from);
       const toVertex = vertices.find(v => v.id === to);
@@ -464,13 +506,20 @@ export function addExitsToPlaces(places: Place[], connections: Array<{from: stri
             (fromVertex.ecosystem === EcosystemName.JUNGLE_TROPICAL && toVertex.ecosystem === EcosystemName.MARSH_TROPICAL) ||
             (fromVertex.ecosystem === EcosystemName.MARSH_TROPICAL && toVertex.ecosystem === EcosystemName.JUNGLE_TROPICAL);
 
-          if (!isJungleMarshConnection) {
+          // Allow legitimate bridge connections between adjacent ecosystems
+          const isLegitimateBridge = isLegitimateEcosystemBridge(fromVertex, toVertex, metrics);
+
+          if (!isJungleMarshConnection && !isLegitimateBridge) {
             console.warn(`❌ BLOCKED unauthorized cross-ecosystem exit: ${from} (${fromVertex.ecosystem.split(':')[2]}) → ${to} (${toVertex.ecosystem.split(':')[2]})`);
             failedConnections++;
             return; // Skip this connection entirely
           }
 
-          console.log(`✅ ALLOWED jungle-marsh connection: ${from} (${fromVertex.ecosystem.split(':')[2]}) → ${to} (${toVertex.ecosystem.split(':')[2]})`);
+          if (isJungleMarshConnection) {
+            console.log(`✅ ALLOWED jungle-marsh connection: ${from} (${fromVertex.ecosystem.split(':')[2]}) → ${to} (${toVertex.ecosystem.split(':')[2]})`);
+          } else if (isLegitimateBridge) {
+            console.log(`✅ ALLOWED bridge connection: ${from} (${fromVertex.ecosystem.split(':')[2]}) → ${to} (${toVertex.ecosystem.split(':')[2]})`);
+          }
         }
       }
       // Get coordinates for direction calculation
@@ -1571,6 +1620,14 @@ export function generateWorld(config: WorldGenerationConfig): WorldGenerationRes
 
   console.log(`\n=== FINAL RESULT: ${allVertices.length} vertices, ${allConnections.length} connections ===`);
 
+  // POST-PROCESSING: Create inter-ecosystem bridges
+  const bridgeConnections = createInterEcosystemBridges(allVertices, allConnections, metrics, rng);
+
+  // Add bridge connections to the final connections
+  allConnections.push(...bridgeConnections);
+
+  console.log(`After bridge creation: ${allConnections.length} total connections (added ${bridgeConnections.length} bridge connections)`);
+
   // Debug: Analyze final connections by ecosystem pairs and track bridge vertices
   const connectionsByEcosystem = new Map<string, number>();
   const bridgeVertexIds = new Set<string>();
@@ -1608,7 +1665,7 @@ export function generateWorld(config: WorldGenerationConfig): WorldGenerationRes
   console.log(`Using all ${finalConnections.length} connections without filtering`);
 
   // Add exits based on ALL connections
-  addExitsToPlaces(places, finalConnections, finalVertices);
+  addExitsToPlaces(places, finalConnections, finalVertices, metrics);
 
   // TRUE POST-PROCESSING: Assign MARSH_TROPICAL to eastern boundary places
   // This happens AFTER all connectivity is established, so marsh vertices inherit jungle connectivity
@@ -1667,6 +1724,101 @@ export function generateWorld(config: WorldGenerationConfig): WorldGenerationRes
     config,
     ecosystemBoundaries: ecosystemBoundaries
   };
+}
+
+/**
+ * Post-processing step to create bridge connections between ecosystem bands
+ * This bypasses the safeguard in addExitsToPlaces by creating connections directly
+ */
+export function createInterEcosystemBridges(
+  vertices: WorldVertex[],
+  connections: Array<{from: string, to: string}>,
+  metrics: SpatialMetrics,
+  rng: SeededRandom
+): Array<{from: string, to: string}> {
+  console.log('\n=== POST-PROCESSING: Creating Inter-Ecosystem Bridges ===');
+
+  const bridgeConnections: Array<{from: string, to: string}> = [];
+
+  // Define ecosystem progression (west to east)
+  const ecosystemProgression = [
+    EcosystemName.STEPPE_ARID,
+    EcosystemName.GRASSLAND_TEMPERATE,
+    EcosystemName.FOREST_TEMPERATE,
+    EcosystemName.MOUNTAIN_ARID,
+    EcosystemName.JUNGLE_TROPICAL
+  ];
+
+  // Group vertices by ecosystem
+  const verticesByEcosystem = new Map<EcosystemName, WorldVertex[]>();
+  vertices.forEach(vertex => {
+    if (!verticesByEcosystem.has(vertex.ecosystem)) {
+      verticesByEcosystem.set(vertex.ecosystem, []);
+    }
+    verticesByEcosystem.get(vertex.ecosystem)!.push(vertex);
+  });
+
+  // Create bridges between adjacent ecosystems
+  for (let i = 0; i < ecosystemProgression.length - 1; i++) {
+    const currentEcosystem = ecosystemProgression[i];
+    const nextEcosystem = ecosystemProgression[i + 1];
+
+    const currentVertices = verticesByEcosystem.get(currentEcosystem) || [];
+    const nextVertices = verticesByEcosystem.get(nextEcosystem) || [];
+
+    if (currentVertices.length === 0 || nextVertices.length === 0) {
+      console.warn(`Skipping bridge creation: ${currentEcosystem.split(':')[2]} → ${nextEcosystem.split(':')[2]} (missing vertices)`);
+      continue;
+    }
+
+    // Find ecosystem boundaries
+    const currentBoundary = getEcosystemBoundary(currentEcosystem, metrics);
+    const nextBoundary = getEcosystemBoundary(nextEcosystem, metrics);
+
+    // Step 1: Find vertex on westernmost column of next ecosystem closest to vertical center
+    const verticalCenter = metrics.gridHeight / 2;
+    const nextEcosystemWestVertices = nextVertices.filter(v => v.gridX === nextBoundary.startCol);
+
+    if (nextEcosystemWestVertices.length === 0) {
+      console.warn(`No vertices found on westernmost column of ${nextEcosystem.split(':')[2]}`);
+      continue;
+    }
+
+    const nextBridgeVertex = nextEcosystemWestVertices.reduce((closest, vertex) => {
+      const closestDistance = Math.abs(closest.gridY - verticalCenter);
+      const vertexDistance = Math.abs(vertex.gridY - verticalCenter);
+      return vertexDistance < closestDistance ? vertex : closest;
+    });
+
+    // Step 2: Find vertex on easternmost column of current ecosystem closest to the next vertex
+    const currentEcosystemEastVertices = currentVertices.filter(v => v.gridX === currentBoundary.endCol - 1);
+
+    if (currentEcosystemEastVertices.length === 0) {
+      console.warn(`No vertices found on easternmost column of ${currentEcosystem.split(':')[2]}`);
+      continue;
+    }
+
+    const currentBridgeVertex = currentEcosystemEastVertices.reduce((closest, vertex) => {
+      const closestDistance = Math.abs(closest.gridY - nextBridgeVertex.gridY);
+      const vertexDistance = Math.abs(vertex.gridY - nextBridgeVertex.gridY);
+      return vertexDistance < closestDistance ? vertex : closest;
+    });
+
+    // Step 3: Create bidirectional bridge connection
+    const bridgeConnection1 = { from: currentBridgeVertex.id, to: nextBridgeVertex.id };
+    const bridgeConnection2 = { from: nextBridgeVertex.id, to: currentBridgeVertex.id };
+
+    bridgeConnections.push(bridgeConnection1, bridgeConnection2);
+
+    console.log(`✅ Created bridge: ${currentEcosystem.split(':')[2]} → ${nextEcosystem.split(':')[2]}`);
+    console.log(`   From: ${currentBridgeVertex.id} (${currentBridgeVertex.gridX}, ${currentBridgeVertex.gridY})`);
+    console.log(`   To: ${nextBridgeVertex.id} (${nextBridgeVertex.gridX}, ${nextBridgeVertex.gridY})`);
+    console.log(`   Distance: ${Math.abs(nextBridgeVertex.gridX - currentBridgeVertex.gridX)} columns`);
+  }
+
+  console.log(`Created ${bridgeConnections.length / 2} bidirectional bridges between ${ecosystemProgression.length} ecosystems`);
+
+  return bridgeConnections;
 }
 
 // Helper function to calculate target connections per ecosystem
