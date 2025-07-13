@@ -3,7 +3,8 @@
  * Main entry point for the UI
  */
 
-export { generateWorld } from './generator';
+export { generateWorld, findPathFromOrigin, findShortestPathFromOrigin, findOriginVertex } from './generator';
+export { exportWorldToJSONL, downloadJSONL } from './export';
 export type {
   WorldGenerationConfig,
   WorldGenerationResult,

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import type { WorldGenerationResult, WorldVertex } from '../worldgen/types'
+import { findShortestPathFromOrigin } from '../worldgen'
 import type { Place } from 'flux-game'
 import VertexTooltip from './VertexTooltip'
 
@@ -57,6 +58,14 @@ export const Canvas: React.FC<CanvasProps> = ({ world, zoom, panX, panY }) => {
   const hoverTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const hideTimeoutRef = useRef<NodeJS.Timeout | null>(null)
 
+  // Path tracing state
+  const [tracedPath, setTracedPath] = useState<string[]>([])
+  const [pulseStartTime, setPulseStartTime] = useState<number>(0)
+  const pathTraceTimeoutRef = useRef<NodeJS.Timeout | null>(null)
+
+  // Animation frame for pulse effect
+  const animationFrameRef = useRef<number | null>(null)
+
   // Handle container resizing
   useEffect(() => {
     const container = containerRef.current
@@ -94,37 +103,73 @@ export const Canvas: React.FC<CanvasProps> = ({ world, zoom, panX, panY }) => {
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    // Clear canvas
-    ctx.fillStyle = '#1d2021' // Gruvbox hard background
-    ctx.fillRect(0, 0, dimensions.width, dimensions.height)
+    const draw = () => {
+      // Clear canvas
+      ctx.fillStyle = '#1d2021' // Gruvbox hard background
+      ctx.fillRect(0, 0, dimensions.width, dimensions.height)
 
-    // Draw world if available
-    if (world && world.vertices?.length > 0) {
-                  // Debug complete - bridge rule violations confirmed:
-      // 1. Mountain bridging to Forest instead of Jungle (wrong ecosystem progression)
-      // 2. Bridge vertex 4000m off center line (should be ±150m)
-      // 3. Backward connection (NW instead of E)
-
-      drawWorld(ctx, world, dimensions.width, dimensions.height, zoom, panX, panY)
+      // Draw world if available
+      if (world && world.vertices?.length > 0) {
+        drawWorld(ctx, world, dimensions.width, dimensions.height, zoom, panX, panY, tracedPath, pulseStartTime)
+      }
     }
-  }, [world, dimensions.width, dimensions.height, zoom, panX, panY])
+
+    // Initial draw
+    draw()
+
+    // Set up animation loop for pulse effect only if there's a traced path
+    if (tracedPath.length > 0 && pulseStartTime > 0) {
+      const animate = () => {
+        draw()
+        animationFrameRef.current = requestAnimationFrame(animate)
+      }
+      animationFrameRef.current = requestAnimationFrame(animate)
+    }
+
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current)
+        animationFrameRef.current = null
+      }
+    }
+  }, [world, dimensions.width, dimensions.height, zoom, panX, panY, tracedPath, pulseStartTime])
+
+  // Cleanup timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (hoverTimeoutRef.current) {
+        clearTimeout(hoverTimeoutRef.current)
+      }
+      if (hideTimeoutRef.current) {
+        clearTimeout(hideTimeoutRef.current)
+      }
+      if (pathTraceTimeoutRef.current) {
+        clearTimeout(pathTraceTimeoutRef.current)
+      }
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current)
+      }
+    }
+  }, [])
 
   // Hit detection function
   const findVertexAtPosition = (canvasX: number, canvasY: number): WorldVertex | null => {
     if (!world) return null
 
     // Use the EXACT same transform function as drawWorld
+    const availableCanvasHeight = dimensions.height - URN_AREA_HEIGHT
+
     const worldBounds = getWorldBounds(world.vertices)
     const scaleX = dimensions.width / worldBounds.width
-    const scaleY = dimensions.height / worldBounds.height
+    const scaleY = availableCanvasHeight / worldBounds.height
     const baseScale = Math.min(scaleX, scaleY) * 0.9 // 90% to add padding
     const scale = baseScale * zoom // Apply zoom multiplier
 
-    // Calculate offset to center the world
+    // Calculate offset to center the world in the available space (below URN area)
     const worldCenterX = worldBounds.minX + worldBounds.width / 2
     const worldCenterY = worldBounds.minY + worldBounds.height / 2
     const canvasCenterX = dimensions.width / 2
-    const canvasCenterY = dimensions.height / 2
+    const canvasCenterY = URN_AREA_HEIGHT + (availableCanvasHeight / 2) - 25 // Position graph closer to URN area
 
     // Transform world coordinates to canvas coordinates (with zoom and pan)
     const transform = (x: number, y: number) => ({
@@ -171,6 +216,8 @@ export const Canvas: React.FC<CanvasProps> = ({ world, zoom, panX, panY }) => {
       }
 
       if (vertex !== hoveredVertex) {
+        console.log('🖱️ Hovering over new vertex:', vertex.id, vertex.ecosystem, `(${vertex.gridX}, ${vertex.gridY})`)
+
         // Clear existing hover timeout
         if (hoverTimeoutRef.current) {
           clearTimeout(hoverTimeoutRef.current)
@@ -187,6 +234,27 @@ export const Canvas: React.FC<CanvasProps> = ({ world, zoom, panX, panY }) => {
             setIsTooltipVisible(true)
           }
         }, 200)
+
+        // Clear existing path trace timeout
+        if (pathTraceTimeoutRef.current) {
+          clearTimeout(pathTraceTimeoutRef.current)
+        }
+
+        // Set new path trace timeout (250ms delay)
+        pathTraceTimeoutRef.current = setTimeout(() => {
+          if (world && world.vertices && world.edges) {
+            console.log('🔍 Tracing path to vertex:', vertex.id, vertex.ecosystem, `(${vertex.gridX}, ${vertex.gridY})`)
+            const path = findShortestPathFromOrigin(world.vertices, world.edges, vertex.id)
+            console.log('📍 Found path:', path)
+            if (path && path.length > 0) {
+              setTracedPath(path)
+              setPulseStartTime(Date.now())
+              console.log('✨ Starting pulse animation with', path.length, 'vertices')
+            } else {
+              console.log('❌ No path found')
+            }
+          }
+        }, 250)
       } else {
         // Same vertex, update tooltip position
         setTooltipPosition({ x: e.clientX, y: e.clientY })
@@ -197,6 +265,15 @@ export const Canvas: React.FC<CanvasProps> = ({ world, zoom, panX, panY }) => {
         clearTimeout(hoverTimeoutRef.current)
         hoverTimeoutRef.current = null
       }
+
+      // Clear path trace timeout
+      if (pathTraceTimeoutRef.current) {
+        clearTimeout(pathTraceTimeoutRef.current)
+        pathTraceTimeoutRef.current = null
+      }
+
+      // Clear traced path
+      setTracedPath([])
 
       if (!isTooltipHovered) {
         // Add delay before hiding tooltip to allow moving to it
@@ -214,6 +291,15 @@ export const Canvas: React.FC<CanvasProps> = ({ world, zoom, panX, panY }) => {
       clearTimeout(hoverTimeoutRef.current)
       hoverTimeoutRef.current = null
     }
+
+    // Clear path trace timeout
+    if (pathTraceTimeoutRef.current) {
+      clearTimeout(pathTraceTimeoutRef.current)
+      pathTraceTimeoutRef.current = null
+    }
+
+    // Clear traced path
+    setTracedPath([])
 
     // Only hide immediately if tooltip is not hovered
     if (!isTooltipHovered) {
@@ -361,7 +447,7 @@ const drawEcosystemBands = (ctx: CanvasRenderingContext2D, world: WorldGeneratio
   })
 }
 
-const drawWorld = (ctx: CanvasRenderingContext2D, world: WorldGenerationResult, canvasWidth: number, canvasHeight: number, zoom: number, panX: number, panY: number) => {
+const drawWorld = (ctx: CanvasRenderingContext2D, world: WorldGenerationResult, canvasWidth: number, canvasHeight: number, zoom: number, panX: number, panY: number, tracedPath: string[] = [], pulseStartTime: number = 0) => {
   if (!world.vertices.length) return
 
   // Reserve space at the top for URN labels
@@ -398,10 +484,10 @@ const drawWorld = (ctx: CanvasRenderingContext2D, world: WorldGenerationResult, 
   drawEcosystemUrns(ctx, world, canvasWidth, transform)
 
   // Draw connections second (so they appear behind places)
-  drawConnections(ctx, world, transform)
+  drawConnections(ctx, world, transform, tracedPath, pulseStartTime, scale)
 
   // Draw places last (so they appear on top)
-  drawVertices(ctx, world, transform)
+  drawVertices(ctx, world, transform, tracedPath, pulseStartTime, scale)
 }
 
 const getWorldBounds = (vertices: any[]) => {
@@ -471,17 +557,40 @@ const getEcosystemBand = (ecosystem: string): string => {
   return 'unknown'
 }
 
+// Helper function to create a lighter, more transparent version of a color for pulse effects
+const createPulseColor = (baseColor: string, brightness: number = 1): string => {
+  // Remove # if present
+  const hex = baseColor.replace('#', '')
+
+  // Parse RGB values
+  const r = parseInt(hex.substr(0, 2), 16)
+  const g = parseInt(hex.substr(2, 2), 16)
+  const b = parseInt(hex.substr(4, 2), 16)
+
+  // Lighten the color by mixing with white
+  const lightR = Math.min(255, Math.round(r + (255 - r) * 0.4 * brightness))
+  const lightG = Math.min(255, Math.round(g + (255 - g) * 0.4 * brightness))
+  const lightB = Math.min(255, Math.round(b + (255 - b) * 0.4 * brightness))
+
+  return `rgb(${lightR}, ${lightG}, ${lightB})`
+}
+
 // Update the drawConnections function to use world.edges instead of world.connections
 const drawConnections = (
   ctx: CanvasRenderingContext2D,
   world: WorldGenerationResult,
-  transform: (x: number, y: number) => { x: number; y: number }
+  transform: (x: number, y: number) => { x: number; y: number },
+  tracedPath: string[] = [],
+  pulseStartTime: number = 0,
+  scale: number = 1
 ) => {
   // Create a vertex map for efficient lookup
   const vertexMap = new Map<string, WorldVertex>()
   world.vertices.forEach(vertex => {
     vertexMap.set(vertex.id, vertex)
   })
+
+
 
   // Draw edges (river connections)
   world.edges.forEach(edge => {
@@ -493,9 +602,66 @@ const drawConnections = (
     const fromPos = transform(fromVertex.x, fromVertex.y)
     const toPos = transform(toVertex.x, toVertex.y)
 
+    // Check if this edge is part of the traced path
+    const isTracedEdge = tracedPath.length > 0 &&
+      tracedPath.includes(fromVertex.id) &&
+      tracedPath.includes(toVertex.id) &&
+      Math.abs(tracedPath.indexOf(fromVertex.id) - tracedPath.indexOf(toVertex.id)) === 1
+
+    // Calculate edge color based on connected vertices
+    const fromVertexColor = NODE_COLORS[fromVertex.ecosystem as keyof typeof NODE_COLORS] || '#83a598'
+    const toVertexColor = NODE_COLORS[toVertex.ecosystem as keyof typeof NODE_COLORS] || '#83a598'
+
+    let edgeColor: string
+    if (fromVertex.ecosystem === toVertex.ecosystem) {
+      // Same ecosystem - use muted version of that color
+      edgeColor = muteColor(fromVertexColor)
+    } else {
+      // Different ecosystems - blend the colors and then mute
+      const blendedColor = blendColors(fromVertexColor, toVertexColor)
+      edgeColor = muteColor(blendedColor)
+    }
+
     // Draw connection line
-    ctx.strokeStyle = '#458588' // Gruvbox blue for river connections
+    ctx.strokeStyle = edgeColor
     ctx.lineWidth = 2
+
+            // Add pulse effect for traced edges
+    if (isTracedEdge && pulseStartTime > 0) {
+      const currentTime = Date.now()
+      const elapsedTime = currentTime - pulseStartTime
+
+      // Calculate propagation delay based on position in path
+      const fromIndex = tracedPath.indexOf(fromVertex.id)
+      const toIndex = tracedPath.indexOf(toVertex.id)
+      const edgeIndex = Math.min(fromIndex, toIndex) // Use the earlier vertex in the path
+      const propagationDelay = edgeIndex * 50 // 50ms delay per step
+      const adjustedElapsedTime = elapsedTime - propagationDelay
+
+
+
+      // Only show pulse if enough time has passed for this edge
+      if (adjustedElapsedTime > 0) {
+        const pulseSpeed = 1000 // milliseconds for one pulse cycle
+        const pulsePhase = Math.min(adjustedElapsedTime / pulseSpeed, 1.0) // Cap at 1.0 to prevent looping
+
+        // Create pulsing effect with a brighter color (no looping)
+        const pulseBrightness = 0.5 + 0.5 * Math.sin(pulsePhase * Math.PI * 2)
+        const pulseAlpha = 0.3 + 0.2 * pulseBrightness // Reduced opacity range
+
+        // Draw pulse background
+        ctx.save()
+        ctx.globalAlpha = pulseAlpha
+        const fromVertexColor = NODE_COLORS[fromVertex.ecosystem as keyof typeof NODE_COLORS] || '#83a598'
+        ctx.strokeStyle = createPulseColor(fromVertexColor, pulseBrightness) // Use vertex-specific color
+        ctx.lineWidth = 8 + 4 * pulseBrightness // Consistent pixel size regardless of zoom
+        ctx.beginPath()
+        ctx.moveTo(fromPos.x, fromPos.y)
+        ctx.lineTo(toPos.x, toPos.y)
+        ctx.stroke()
+        ctx.restore()
+      }
+    }
     ctx.beginPath()
     ctx.moveTo(fromPos.x, fromPos.y)
     ctx.lineTo(toPos.x, toPos.y)
@@ -523,10 +689,53 @@ const drawConnections = (
 const drawVertices = (
   ctx: CanvasRenderingContext2D,
   world: WorldGenerationResult,
-  transform: (x: number, y: number) => { x: number; y: number }
+  transform: (x: number, y: number) => { x: number; y: number },
+  tracedPath: string[] = [],
+  pulseStartTime: number = 0,
+  scale: number = 1
 ) => {
+
+
   world.vertices.forEach(vertex => {
     const pos = transform(vertex.x, vertex.y)
+
+    // Check if this vertex is part of the traced path
+    const isTracedVertex = tracedPath.includes(vertex.id)
+
+            // Draw pulse effect for traced vertices
+    if (isTracedVertex && pulseStartTime > 0) {
+      const currentTime = Date.now()
+      const elapsedTime = currentTime - pulseStartTime
+
+      // Calculate propagation delay based on position in path
+      const vertexIndex = tracedPath.indexOf(vertex.id)
+      const propagationDelay = vertexIndex * 50 // 50ms delay per step
+      const adjustedElapsedTime = elapsedTime - propagationDelay
+
+      // Only show pulse if enough time has passed for this vertex
+      if (adjustedElapsedTime > 0) {
+        const pulseSpeed = 1000 // milliseconds for one pulse cycle
+        const pulsePhase = Math.min(adjustedElapsedTime / pulseSpeed, 1.0) // Cap at 1.0 to prevent looping
+
+        // Create pulsing effect with expanding circle (no looping)
+        const pulseBrightness = 0.5 + 0.5 * Math.sin(pulsePhase * Math.PI * 2)
+        const pulseAlpha = 0.2 + 0.3 * pulseBrightness // Reduced opacity range
+        const baseRadius = (15 + 8 * pulseBrightness) * 0.618     // Base radius range (61.8% of original)
+        const pulseRadius = baseRadius // Keep consistent pixel size regardless of zoom
+
+
+
+        // Draw pulse halo
+        ctx.save()
+        ctx.globalAlpha = pulseAlpha
+        const vertexColor = NODE_COLORS[vertex.ecosystem as keyof typeof NODE_COLORS] || '#83a598'
+        ctx.fillStyle = createPulseColor(vertexColor, pulseBrightness) // Use vertex-specific color
+        ctx.beginPath()
+        ctx.arc(pos.x, pos.y, pulseRadius, 0, 2 * Math.PI)
+        ctx.fill()
+        ctx.restore()
+      }
+    }
 
     // Draw vertex circle
     const radius = vertex.isOrigin ? 8 : 6

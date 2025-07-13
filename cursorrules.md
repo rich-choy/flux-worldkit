@@ -60,6 +60,141 @@ We are building a **terrain-driven world generation system** that creates connec
 
 *Note: These are target biases for the connectivity fixing phase that will adjust the river network after dithering to achieve desired connection density per ecosystem.*
 
+## JSONL Export System
+
+The worldgen system can export generated worlds as JSONL files where each line contains a well-formed Place object conforming to the game's Place type definition.
+
+### Place URN Generation
+
+Place URNs are derived from the biome component of the ecosystem URN and the place's coordinates:
+
+```typescript
+// Example ecosystem URN: "flux:eco:forest:temperate"
+// Extract biome: "forest" (second component)
+// Generate Place URN: "flux:place:forest:${x}:${y}"
+
+function generatePlaceURN(ecosystemURN: string, coordinates: [number, number]): string {
+  const biome = ecosystemURN.split(':')[2]; // Extract biome component
+  const [x, y] = coordinates;
+  return `flux:place:${biome}:${x}:${y}`;
+}
+```
+
+**URN Examples:**
+- `flux:eco:steppe:arid` + `[0, 14]` → `flux:place:steppe:0:14`
+- `flux:eco:mountain:arid` + `[25, 8]` → `flux:place:mountain:25:8`
+- `flux:eco:jungle:tropical` + `[45, 20]` → `flux:place:jungle:45:20`
+
+### Weather System Integration
+
+Each exported Place must include realistic weather data generated using the physics-based weather simulation system. The weather system provides:
+
+**Fundamental Atmospheric Properties:**
+- Temperature (°C): Based on ecosystem and spatial position
+- Pressure (hPa): Affected by altitude and ecosystem type
+- Humidity (%): Influenced by ecosystem and neighbor weather
+
+**Derived Weather Phenomena:**
+- Precipitation (mm/hour): Calculated from atmospheric conditions
+- PPFD (μmol photons m⁻² s⁻¹): Photosynthetic light availability
+- Cloud coverage (%): Computed from humidity and pressure
+
+**Ecological Profiles:**
+Each ecosystem type has specific ecological bounds for weather parameters:
+
+```typescript
+const ECOSYSTEM_ECOLOGICAL_PROFILES = {
+  'steppe': {
+    ecosystem: 'flux:eco:steppe:arid',
+    temperature: [15.0, 35.0],    // Hot, continental climate
+    pressure: [1010.0, 1030.0],   // High pressure systems
+    humidity: [15.0, 45.0]        // Arid conditions
+  },
+  'grassland': {
+    ecosystem: 'flux:eco:grassland:temperate',
+    temperature: [0.0, 40.0],     // Extreme seasonal range
+    pressure: [980.0, 1020.0],    // Variable pressure systems
+    humidity: [35.0, 65.0]        // Moderate humidity
+  },
+  'forest': {
+    ecosystem: 'flux:eco:forest:temperate',
+    temperature: [5.0, 30.0],     // Mild, stable climate
+    pressure: [990.0, 1020.0],    // Stable pressure
+    humidity: [55.0, 85.0]        // Forest moisture retention
+  },
+  'mountain': {
+    ecosystem: 'flux:eco:mountain:arid',
+    temperature: [-5.0, 25.0],    // Alpine temperature variation
+    pressure: [950.0, 990.0],     // Low pressure (high altitude)
+    humidity: [10.0, 35.0]        // Arid mountain conditions
+  },
+  'jungle': {
+    ecosystem: 'flux:eco:jungle:tropical',
+    temperature: [20.0, 35.0],    // Consistently hot tropical
+    pressure: [1000.0, 1020.0],   // Stable tropical pressure
+    humidity: [75.0, 95.0]        // High tropical humidity
+  },
+  'marsh': {
+    ecosystem: 'flux:eco:marsh:tropical',
+    temperature: [10.0, 30.0],    // Cooler wetland temperatures
+    pressure: [1020.0, 1040.0],   // Higher pressure (below sea level)
+    humidity: [85.0, 100.0]       // Saturated wetland conditions
+  }
+};
+```
+
+### Export Implementation Requirements
+
+**Core Export Function:**
+```typescript
+function exportWorldToJSONL(world: WorldGenerationResult): string {
+  const places = world.vertices.map(vertex => {
+    const coordinates: [number, number] = [vertex.x, vertex.y];
+    const place: Place = {
+      id: generatePlaceURN(vertex.ecosystem, coordinates),
+      name: generatePlaceName(vertex),
+      description: generatePlaceDescription(vertex),
+      exits: convertVertexExitsToPlaceExits(vertex, world),
+      entities: {}, // Empty initially
+      ecology: getEcologicalProfile(vertex.ecosystem),
+      weather: generateRealisticWeather(vertex, world),
+      coordinates: coordinates
+    };
+    return place;
+  });
+
+  return places.map(place => JSON.stringify(place)).join('\n');
+}
+```
+
+**UI Integration:**
+- Add "Export JSONL" button to the visualization interface
+- Button triggers browser download dialog with filename: `world-${seed}-${timestamp}.jsonl`
+- Use standard browser download API: `URL.createObjectURL()` with `text/plain` MIME type
+- Button should be disabled during world generation
+- Show export progress/completion feedback
+
+**Weather Generation:**
+- Use seeded randomness for deterministic weather generation
+- Apply spatial weather coherence (neighboring places have similar weather)
+- Respect ecological bounds for each ecosystem type
+- Include realistic seasonal and diurnal variations
+- Generate unique timestamps for each place's weather data
+
+**Export Validation:**
+- Ensure each line is valid JSON
+- Validate Place objects conform to type definition
+- Check all Place URNs are unique
+- Verify weather data is within ecological bounds
+- Confirm spatial coordinates are consistent
+
+### File Format Example
+
+```jsonl
+{"id":"flux:place:steppe:0:14","name":"Arid Steppe Origin","description":"A windswept steppe at the western edge of the world.","exits":{"east":{"direction":"east","label":"Eastward Path","to":"flux:place:steppe:1:14"}},"entities":{},"ecology":{"ecosystem":"flux:eco:steppe:arid","temperature":[10.0,40.0],"pressure":[1000.0,1030.0],"humidity":[20.0,60.0]},"weather":{"temperature":25.5,"pressure":1015.2,"humidity":35.0,"precipitation":0.0,"ppfd":1200.0,"clouds":15.0,"ts":1699123456789},"coordinates":[0,14]}
+{"id":"flux:place:grassland:15:12","name":"Temperate Grassland","description":"Rolling hills covered in tall grass.","exits":{"west":{"direction":"west","label":"Western Path","to":"flux:place:steppe:14:13"},"east":{"direction":"east","label":"Eastern Path","to":"flux:place:forest:16:11"}},"entities":{},"ecology":{"ecosystem":"flux:eco:grassland:temperate","temperature":[0.0,35.0],"pressure":[980.0,1020.0],"humidity":[40.0,80.0]},"weather":{"temperature":18.2,"pressure":1005.8,"humidity":65.0,"precipitation":1.2,"ppfd":950.0,"clouds":45.0,"ts":1699123456789},"coordinates":[15,12]}
+```
+
 ### Technical Requirements
 
 #### Pure and Deterministic Logic
@@ -127,6 +262,7 @@ function calculateEcosystemProbability(vertex: Vertex, ecosystemBoundaries: Boun
 4. **Flexible Connectivity**: River flow independent of ecosystem assignments
 5. **Golden Ratio Aesthetics**: Natural proportions that feel organic
 6. **Emergent Complexity**: Simple rules create complex, natural-looking worlds
+7. **Game Integration**: Direct export to game-compatible Place objects with realistic weather
 
 ### Visualization Integration Requirements
 
@@ -175,6 +311,7 @@ const generatedWorld = await generateWorld(config)  // WorldGenerationResult
 4. **Phase 4**: Validate connectivity and ecosystem distribution
 5. **Phase 5**: Generate places and exits from final vertex graph
 6. **Phase 6**: Format output for React Viewport component visualization
+7. **Phase 7**: Implement JSONL export with weather generation and UI integration
 
 ### Success Criteria
 
@@ -194,6 +331,14 @@ const generatedWorld = await generateWorld(config)  // WorldGenerationResult
 - **Performance**: Generates and renders worlds efficiently in browser environment
 - **User experience**: Smooth integration with existing UI controls and workflows
 
+**JSONL Export**:
+- **Valid Place objects**: Each exported Place conforms to game type definition
+- **Realistic weather**: Physics-based weather generation with ecological constraints
+- **Proper URN generation**: Place URNs correctly derived from ecosystem biomes
+- **Deterministic output**: Same seed produces identical JSONL export
+- **UI integration**: Smooth export experience with download dialog
+- **File validation**: All exported data passes type checking and validation
+
 ---
 
 ## Implementation Notes
@@ -204,3 +349,5 @@ const generatedWorld = await generateWorld(config)  // WorldGenerationResult
 - **Embrace emergence**: Let complex patterns arise from simple rules
 - **Visualize early**: Ensure each phase produces visualization-friendly output for debugging and validation
 - **UI-first approach**: Design data structures that work well with the existing React Viewport component
+- **Weather realism**: Use the documented weather system physics for authentic atmospheric conditions
+- **Export validation**: Ensure JSONL output is compatible with game server requirements

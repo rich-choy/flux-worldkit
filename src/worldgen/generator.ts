@@ -1289,3 +1289,188 @@ function createSeededRNG(seed: number): () => number {
     return state / (2 ** 32);
   };
 }
+
+/**
+ * Find path from origin vertex to target vertex using DFS
+ * Returns the path as an array of vertex IDs from origin to target
+ */
+export function findPathFromOrigin(
+  vertices: WorldVertex[],
+  edges: RiverEdge[],
+  targetVertexId: string
+): string[] | null {
+  if (!vertices || vertices.length === 0) {
+    console.log('🚫 No vertices provided to findPathFromOrigin');
+    return null;
+  }
+
+  // Find the origin vertex (should be at gridX: 0, gridY: center)
+  const originVertex = vertices.find(v => v.gridX === 0);
+  if (!originVertex) {
+    console.log('🚫 No origin vertex found (gridX === 0)');
+    console.log('Available vertices gridX range:', Math.min(...vertices.map(v => v.gridX)), 'to', Math.max(...vertices.map(v => v.gridX)));
+    return null;
+  }
+
+  console.log('🎯 Origin vertex found:', originVertex.id, `(${originVertex.gridX}, ${originVertex.gridY})`);
+
+  // Early exit if target is the origin
+  if (originVertex.id === targetVertexId) {
+    console.log('✅ Target is origin, returning single vertex path');
+    return [originVertex.id];
+  }
+
+  // Build adjacency map for efficient lookups
+  const adjacencyMap = new Map<string, Set<string>>();
+
+  // Initialize adjacency map
+  vertices.forEach(vertex => {
+    adjacencyMap.set(vertex.id, new Set<string>());
+  });
+
+  // Populate adjacency map from edges
+  edges.forEach(edge => {
+    const fromSet = adjacencyMap.get(edge.fromVertexId);
+    const toSet = adjacencyMap.get(edge.toVertexId);
+
+    if (fromSet && toSet) {
+      fromSet.add(edge.toVertexId);
+      toSet.add(edge.fromVertexId);
+    }
+  });
+
+  // DFS to find path
+  const visited = new Set<string>();
+  const path: string[] = [];
+
+  function dfs(currentVertexId: string): boolean {
+    if (visited.has(currentVertexId)) return false;
+
+    visited.add(currentVertexId);
+    path.push(currentVertexId);
+
+    // Found target
+    if (currentVertexId === targetVertexId) {
+      return true;
+    }
+
+    // Explore neighbors
+    const neighbors = adjacencyMap.get(currentVertexId);
+    if (neighbors) {
+      for (const neighborId of neighbors) {
+        if (dfs(neighborId)) {
+          return true;
+        }
+      }
+    }
+
+    // Backtrack
+    path.pop();
+    return false;
+  }
+
+    // Start DFS from origin
+  console.log('🔍 Starting DFS from origin to target:', targetVertexId);
+  console.log('📊 Graph has', vertices.length, 'vertices and', edges.length, 'edges');
+
+  if (dfs(originVertex.id)) {
+    console.log('✅ Path found with', path.length, 'vertices:', path);
+    return path;
+  }
+
+  console.log('❌ No path found from origin to target');
+  return null; // No path found
+}
+
+/**
+ * Find the SHORTEST path from origin to target using BFS
+ */
+export function findShortestPathFromOrigin(
+  vertices: WorldVertex[],
+  edges: RiverEdge[],
+  targetVertexId: string
+): string[] | null {
+  if (!vertices || vertices.length === 0) {
+    console.log('🚫 No vertices provided to findShortestPathFromOrigin');
+    return null;
+  }
+
+  // Find the origin vertex (should be at gridX: 0, gridY: center)
+  const originVertex = vertices.find(v => v.gridX === 0);
+  if (!originVertex) {
+    console.log('🚫 No origin vertex found (gridX === 0)');
+    return null;
+  }
+
+  // Early exit if target is the origin
+  if (originVertex.id === targetVertexId) {
+    return [originVertex.id];
+  }
+
+  // Build adjacency map for efficient lookups
+  const adjacencyMap = new Map<string, Set<string>>();
+
+  // Initialize adjacency map
+  vertices.forEach(vertex => {
+    adjacencyMap.set(vertex.id, new Set<string>());
+  });
+
+  // Populate adjacency map from edges
+  edges.forEach(edge => {
+    const fromSet = adjacencyMap.get(edge.fromVertexId);
+    const toSet = adjacencyMap.get(edge.toVertexId);
+
+    if (fromSet && toSet) {
+      fromSet.add(edge.toVertexId);
+      toSet.add(edge.fromVertexId);
+    }
+  });
+
+  // BFS to find shortest path
+  const queue: string[] = [originVertex.id];
+  const visited = new Set<string>([originVertex.id]);
+  const parent = new Map<string, string>();
+
+  while (queue.length > 0) {
+    const currentVertexId = queue.shift()!;
+
+    // Found target - reconstruct path
+    if (currentVertexId === targetVertexId) {
+      const path: string[] = [];
+      let current = targetVertexId;
+
+      while (current !== undefined) {
+        path.unshift(current);
+        current = parent.get(current)!;
+      }
+
+      console.log('✅ Shortest path found with', path.length, 'vertices:', path);
+      return path;
+    }
+
+    // Explore neighbors
+    const neighbors = adjacencyMap.get(currentVertexId);
+    if (neighbors) {
+      for (const neighborId of neighbors) {
+        if (!visited.has(neighborId)) {
+          visited.add(neighborId);
+          parent.set(neighborId, currentVertexId);
+          queue.push(neighborId);
+        }
+      }
+    }
+  }
+
+  console.log('❌ No path found from origin to target');
+  return null; // No path found
+}
+
+/**
+ * Find the origin vertex for a given world
+ */
+export function findOriginVertex(vertices: WorldVertex[]): WorldVertex | null {
+  if (!vertices || vertices.length === 0) return null;
+
+  // Origin vertex should be at gridX: 0 (westernmost column)
+  return vertices.find(v => v.gridX === 0) || null;
+}
