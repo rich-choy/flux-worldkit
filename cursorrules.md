@@ -41,14 +41,14 @@ I am implementing interactive hover tooltips for vertices in the world graph vis
 
 ### 🎯 Target Feature
 
-**Interactive Hover Tooltip:**
+**Interactive Hover Tooltip - Read Mode:**
 ```
 ┌─────────────────────────────────────┐
-│ Vertex Details                  [✎] │
+│ Vertex Details                  [✎] │ ← Edit button (pencil icon)
 ├─────────────────────────────────────┤
 │ ID: grassland-delta-001             │
-│ Name: [Rolling Prairie Hills    ]   │ ← Editable
-│ Description: [A vast expanse of...] │ ← Editable
+│ Name: Rolling Prairie Hills         │
+│ Description: A vast expanse of...   │
 │ Ecosystem: Grassland                │
 │ Position: (245, 180)                │
 │ Grid: (12, 9)                       │
@@ -59,8 +59,30 @@ I am implementing interactive hover tooltips for vertices in the world graph vis
 │ • South → bridge-grassland-forest   │
 │                                     │
 │ Created by: Grid-aligned pathfinding │
+└─────────────────────────────────────┘
+```
+
+**Interactive Hover Tooltip - Edit Mode:**
+```
+┌─────────────────────────────────────┐
+│ Editing Vertex Details              │
+├─────────────────────────────────────┤
+│ ID: grassland-delta-001             │
+│ Name: [Rolling Prairie Hills    ]   │ ← Text input (auto-focused)
+│ Description: ┌─────────────────────┐ │
+│              │A vast expanse of... │ │ ← Textarea
+│              │grassland stretching │ │
+│              │to the horizon       │ │
+│              └─────────────────────┘ │
+│ Ecosystem: Grassland                │
+│ Position: (245, 180)                │
+│ Grid: (12, 9)                       │
 │                                     │
-│ [Save] [Cancel]                     │
+│ Exits: (read-only in edit mode)     │
+│ • North → forest-delta-023          │
+│ • East → grassland-delta-002        │
+│                                     │
+│           [Save] [Cancel]           │
 └─────────────────────────────────────┘
 ```
 
@@ -75,9 +97,13 @@ I am implementing interactive hover tooltips for vertices in the world graph vis
 6. **Origin Context**: Whether created by grid-aligned DFS pathfinding (if determinable)
 
 **Editing Capabilities:**
-- **Name Editing**: Click to edit the place name (inline text input)
-- **Description Editing**: Click to edit the place description (textarea)
-- **Immediate Updates**: Changes reflect in the tooltip and world state
+- **Modal Edit Mode**: Click edit button (pencil icon) to enter dedicated editing mode
+- **Locked Tooltip**: Tooltip stays open during editing (doesn't disappear on mouse leave)
+- **Name Editing**: Single-line text input with auto-focus
+- **Description Editing**: Multi-line textarea with reasonable character limits
+- **Explicit Save**: User must click Save button to commit changes
+- **Cancel Option**: ESC key or Cancel button reverts to original values
+- **Immediate Updates**: Saved changes reflect in the tooltip and world state
 - **No Persistence Tracking**: Don't distinguish between generated vs user content
 
 ### 🔧 Implementation Requirements
@@ -94,19 +120,21 @@ I am implementing interactive hover tooltips for vertices in the world graph vis
 - Ecosystem display logic (handle marsh special case)
 - Pathfinding origin detection (if context available)
 
-**3. Editing Functionality:**
-- **Edit Mode Toggle**: Click edit button or double-click fields
-- **Inline Editing**: Text inputs for name, textarea for description
-- **Save/Cancel**: Commit or discard changes
+**3. Modal Editing Functionality:**
+- **Edit Mode Toggle**: Click pencil icon in tooltip header
+- **Tooltip Locking**: Prevent tooltip from closing during edit mode
+- **Form Fields**: Text input for name, textarea for description
+- **Validation**: Real-time feedback, prevent empty names
+- **Save/Cancel**: Explicit buttons with clear actions
 - **State Management**: Update Place objects in world state
-- **Validation**: Ensure names aren't empty, reasonable length limits
+- **Keyboard Navigation**: Tab order: Name → Description → Save → Cancel
 
 **4. Tooltip Rendering:**
 - Positioned near cursor but within viewport bounds
 - Styled to match application theme
 - Readable typography and spacing
 - Responsive to different screen sizes
-- Expandable for edit mode
+- Expandable for edit mode (larger textarea)
 
 **5. Performance Considerations:**
 - Lightweight hover detection
@@ -123,21 +151,23 @@ Canvas.tsx
 ├── Vertex rendering (existing)
 ├── Hover detection (new)
 ├── VertexTooltip component (new)
-│   ├── ReadMode (display info)
-│   ├── EditMode (editable fields)
+│   ├── ReadMode (display info + edit button)
+│   ├── EditMode (form fields + save/cancel)
 │   └── Tooltip positioning logic
 └── Place state management (new)
 ```
 
-**Data Flow:**
-1. Mouse enters vertex → Identify vertex from coordinates
-2. Look up vertex data from `WorldVertex[]` array
-3. Find corresponding `Place` object using `vertex.placeId`
-4. Determine ecosystem display string
-5. Check for pathfinding origin indicators
-6. Render tooltip with formatted information
-7. **Edit Mode**: Allow modification of `place.name` and `place.description`
-8. **Save Changes**: Update Place object in world state
+**User Experience Flow:**
+1. **Hover** → Tooltip appears with pencil icon in header
+2. **Click Edit Button** → Tooltip transforms to edit mode:
+   - Name becomes text input (auto-focused)
+   - Description becomes textarea
+   - Save/Cancel buttons appear
+   - Tooltip locks in place (doesn't disappear on mouse leave)
+3. **Edit Fields** → User can Tab between fields, type freely
+4. **Save** → Brief success animation, return to read mode, changes persist
+5. **Cancel/Escape** → Revert to original values, return to read mode
+6. **Mouse Leave** → Tooltip disappears (unless in edit mode)
 
 **State Management:**
 - `hoveredVertex: WorldVertex | null` - Currently hovered vertex
@@ -197,16 +227,26 @@ function updatePlace(placeId: string, updates: {name?: string, description?: str
 - **Positioning**: Smart placement to avoid viewport edges
 
 **Edit Mode Design:**
-- **Visual Cue**: Edit button (pencil icon) in tooltip header
-- **Inline Fields**: Text input for name, textarea for description
-- **Action Buttons**: Save/Cancel buttons at bottom
-- **Feedback**: Visual feedback on successful save
-- **Escape Handling**: ESC key cancels edit mode
+- **Visual Cue**: Pencil icon in tooltip header (always visible)
+- **Mode Transition**: Smooth transformation from read to edit mode
+- **Form Fields**:
+  - Name: Single-line text input, auto-focused, ~50 character limit
+  - Description: Multi-line textarea, ~200 character limit
+- **Action Buttons**: Save/Cancel buttons at bottom, clear hierarchy
+- **Feedback**: Visual feedback on successful save (green checkmark animation)
+- **Validation**: Real-time character count, empty name warnings
+- **Escape Handling**: ESC key always cancels edit mode
 
 **Interaction Model:**
 - **Hover Delay**: 200ms delay before showing tooltip
-- **Hover Exit**: Immediate hide on mouse leave (unless editing)
-- **Edit Mode**: Tooltip stays open during editing
+- **Edit Button**: Always visible pencil icon in tooltip header
+- **Modal Editing**: Click edit button → tooltip enters locked edit mode
+- **Tooltip Locking**: Tooltip stays open during editing (ignores mouse leave)
+- **Save/Cancel**: Explicit buttons required to exit edit mode
+- **Keyboard Shortcuts**:
+  - Tab navigation between fields and buttons
+  - ESC key cancels edit mode
+  - Enter in name field moves focus to description
 - **Zoom Behavior**: Tooltip hides during zoom/pan operations
 - **Bridge Vertices**: Special styling for bridge vertex tooltips
 
@@ -222,19 +262,21 @@ function updatePlace(placeId: string, updates: {name?: string, description?: str
    - Tooltip positioning logic
    - Responsive styling
 
-3. **Data Integration**
+3. **Add Modal Editing**
+   - Edit button in tooltip header
+   - Form fields for name and description
+   - Tooltip locking mechanism
+   - Save/cancel logic
+
+4. **Data Integration**
    - Merge vertex and place data
    - Ecosystem display formatting
    - Exit information extraction
-
-4. **Add Editing Functionality**
-   - Edit mode toggle
-   - Inline form fields
-   - Save/cancel logic
-   - State updates
+   - Place object updates
 
 5. **Visual Polish**
-   - Smooth animations
+   - Smooth mode transitions
+   - Success animations
    - Proper z-index layering
    - Theme integration
    - Loading states
@@ -242,6 +284,7 @@ function updatePlace(placeId: string, updates: {name?: string, description?: str
 6. **Testing**
    - Different vertex types (regular, bridge, marsh)
    - Edit mode functionality
+   - Keyboard navigation
    - Various screen sizes
    - Performance under different zoom levels
 
@@ -267,18 +310,22 @@ function updatePlace(placeId: string, updates: {name?: string, description?: str
 - Vertices with no exits
 - Vertices with missing place data
 - Vertices at viewport boundaries
-- Very long names/descriptions
-- Empty names (require validation)
+- Very long names/descriptions (truncation in read mode)
+- Empty names (prevent saving, show validation error)
+- Network errors during save (retry mechanism)
 
 ### 📈 Success Criteria
 
 **✅ Functional Requirements:**
 - Hover shows detailed vertex information
+- Edit button is discoverable and accessible
+- Modal editing provides focused editing experience
 - Ecosystem assignment is clearly displayed
 - Exit information is comprehensive and readable
 - Pathfinding origin is indicated when available
 - Name and description editing works smoothly
-- Changes persist in world state
+- Changes persist in world state after save
+- Cancel/ESC properly reverts changes
 
 **✅ Technical Requirements:**
 - Smooth hover interactions
@@ -286,12 +333,17 @@ function updatePlace(placeId: string, updates: {name?: string, description?: str
 - Responsive tooltip positioning
 - Efficient editing workflow
 - Proper state management
+- Tooltip locking works correctly
+- Form validation prevents invalid data
 
 **✅ User Experience:**
 - Information is immediately understandable
-- Editing feels natural and intuitive
+- Edit button is discoverable and intuitive
+- Editing feels natural and focused
+- Save/cancel actions are clear and predictable
 - Tooltip doesn't interfere with navigation
 - Visual consistency with existing design
 - Works across different devices
+- Keyboard navigation is smooth and logical
 
-The goal is to create an informative and interactive hover system that provides detailed insights into each vertex while enabling quick customization of place properties, turning the visualization into a world-building tool.
+The goal is to create an informative and interactive hover system that provides detailed insights into each vertex while enabling focused, intentional editing of place properties through a polished modal interface.
