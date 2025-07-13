@@ -49,115 +49,178 @@ interface DeltaConfig {
 
 
 /**
- * Generate dense mesh connectivity instead of sparse deltas
- * Each vertex connects to multiple neighbors to ensure full connectivity
+ * Generate vertices and connections organically through river delta flow
+ * This ensures every vertex is connected by construction - no disconnected subgraphs possible
  */
 function generateDenseEcosystemConnectivity(
   ecosystem: EcosystemName,
   vertices: WorldVertex[],
-  _metrics: SpatialMetrics,
+  metrics: SpatialMetrics,
   rng: SeededRandom,
   globalBranchingFactor?: number
 ): DeltaEdge[] {
   const edges: DeltaEdge[] = [];
 
-  if (vertices.length === 0) {
-    return edges;
-  }
-
   // Get ecosystem-specific parameters
   const deltaConfig = getDeltaConfig(ecosystem, 1.0, globalBranchingFactor);
 
-
-
-  // Filter out bridge vertices - they should only be connected via grid-aligned pathfinding
-  const regularVertices = vertices.filter(v => !v.id.startsWith('bridge-'));
-
-  // Create a spatial lookup for fast neighbor finding (excluding bridge vertices)
-  const spatialLookup = new Map<string, WorldVertex>();
-  for (const vertex of regularVertices) {
-    const key = `${vertex.gridX},${vertex.gridY}`;
-    spatialLookup.set(key, vertex);
+  // Find the pre-created origin vertex
+  const origin = findDeltaOrigin(vertices, ecosystem, metrics);
+  if (!origin) {
+    console.warn(`No delta origin found for ${ecosystem}`);
+    return edges;
   }
 
-  // For each regular vertex (excluding bridge vertices), connect to available neighbors
-  for (const vertex of regularVertices) {
-    let connectionsCreated = 0;
-    // Use branching factor to determine target connections - allow very sparse patterns
-    const targetConnections = Math.max(1, Math.min(6, Math.round(deltaConfig.branchingFactor + 1)));
+  // Create spatial lookup for tracking created vertices
+  const spatialLookup = new Map<string, WorldVertex>();
+  const generatedVertices: WorldVertex[] = [];
 
-    // Create directional bias - favor eastward connections for river delta flow
-    const eastwardDirections = [[1, 0], [1, 1], [1, -1]];  // East, Southeast, Northeast
-    const westwardDirections = [[-1, 0], [-1, 1], [-1, -1]]; // West, Southwest, Northwest
-    const neutralDirections = [[0, 1], [0, -1]]; // North, South
+  // Add the origin to our tracking structures
+  spatialLookup.set(`${origin.gridX},${origin.gridY}`, origin);
+  generatedVertices.push(origin);
 
-    // Bias towards eastward flow (like river deltas flowing east)
-    const biasedDirections = [
-      ...eastwardDirections,
-      ...eastwardDirections, // Double weight for eastward
-      ...neutralDirections,
-      ...westwardDirections
+  // Get ecosystem boundaries to constrain generation
+  const boundary = getEcosystemBoundary(ecosystem, metrics);
+  const startCol = boundary.startCol;
+  const endCol = boundary.endCol;
+
+  // Helper function to create a vertex at a specific grid position
+  function createVertexAtPosition(
+    gridX: number,
+    gridY: number,
+    ecosystem: EcosystemName,
+    metrics: SpatialMetrics,
+    rng: SeededRandom
+  ): WorldVertex {
+    const worldX = metrics.placeMargin + gridX * metrics.placeSpacing;
+    const worldY = metrics.placeMargin + gridY * metrics.placeSpacing;
+    const vertexId = generateVertexId(rng);
+
+    return {
+      id: vertexId,
+      x: worldX,
+      y: worldY,
+      gridX: gridX,
+      gridY: gridY,
+      ecosystem: ecosystem,
+      placeId: `flux:place:${vertexId}`
+    };
+  }
+
+  // Define directional probabilities for natural river delta flow
+  const directionProbabilities = new Map<string, number>([
+    // Eastward directions - emphasize diagonal fanout over straight east
+    ['1,0', 0.6],   // E - reduced straight flow
+    ['1,1', 1.5],   // NE - strong divergent flow (fanout north)
+    ['1,-1', 1.5],  // SE - strong divergent flow (fanout south)
+
+    // Minimal north-south directions - drastically reduced to prevent mesh formation
+    ['0,1', 0.2],   // N - minimal perpendicular flow
+    ['0,-1', 0.2],  // S - minimal perpendicular flow
+
+    // All westward directions - eliminated (no upstream flow)
+    ['-1,1', 0.0],  // NW - completely blocked
+    ['-1,-1', 0.0], // SW - completely blocked
+    ['-1,0', 0.0]   // W - completely blocked
+  ]);
+
+  // STEP 1: MANDATORY ORIGIN EASTWARD CONNECTION
+  // Create the first eastward vertex and connect it to the origin
+  const originEastGridX = origin.gridX + 1;
+  const originEastGridY = origin.gridY;
+
+  // Only create if it's within ecosystem boundaries
+  if (originEastGridX < endCol && originEastGridY >= 0 && originEastGridY < metrics.gridHeight) {
+    const originEastVertex = createVertexAtPosition(
+      originEastGridX,
+      originEastGridY,
+      ecosystem,
+      metrics,
+      rng
+    );
+
+    spatialLookup.set(`${originEastGridX},${originEastGridY}`, originEastVertex);
+    generatedVertices.push(originEastVertex);
+
+    const originEdge: DeltaEdge = {
+      id: `${origin.id}-${originEastVertex.id}`,
+      from: origin,
+      to: originEastVertex,
+      direction: 'eastward',
+      ecosystem: ecosystem
+    };
+    edges.push(originEdge);
+  }
+
+  // STEP 2: GENERATE RIVER DELTA FLOW ORGANICALLY
+  // Use a queue-based approach to generate vertices as we flow eastward
+  const vertexQueue: WorldVertex[] = [origin];
+  const processedVertices = new Set<string>();
+
+  // Generate vertices using breadth-first expansion with directional probabilities
+  while (vertexQueue.length > 0) {
+    const currentVertex = vertexQueue.shift()!;
+
+    // Skip if we've already processed this vertex
+    if (processedVertices.has(currentVertex.id)) continue;
+    processedVertices.add(currentVertex.id);
+
+    // Generate new vertices in each direction based on probabilities
+    const directions = [
+      { dx: 1, dy: 0, key: '1,0' },    // E
+      { dx: 1, dy: 1, key: '1,1' },    // NE
+      { dx: 1, dy: -1, key: '1,-1' },  // SE
+      { dx: 0, dy: 1, key: '0,1' },    // N
+      { dx: 0, dy: -1, key: '0,-1' },  // S
     ];
 
-    // Randomize the biased direction order
-    const shuffledDirections = [...biasedDirections].sort(() => rng.next() - 0.5);
+    for (const dir of directions) {
+      const newGridX = currentVertex.gridX + dir.dx;
+      const newGridY = currentVertex.gridY + dir.dy;
 
-    // Connection probability based on ecosystem characteristics - allow very sparse patterns
-    const connectionProbability = Math.max(0.1, Math.min(0.9, deltaConfig.branchingFactor / 2.0));
-
-    for (const [dx, dy] of shuffledDirections) {
-      if (connectionsCreated >= targetConnections) break;
-
-      const targetGridX = vertex.gridX + dx;
-      const targetGridY = vertex.gridY + dy;
-      const targetKey = `${targetGridX},${targetGridY}`;
-      const targetVertex = spatialLookup.get(targetKey);
-
-      if (targetVertex && targetVertex.id !== vertex.id) {
-        // Check if this edge already exists in reverse
-        const existingEdge = edges.find(e =>
-          (e.from.id === vertex.id && e.to.id === targetVertex.id) ||
-          (e.from.id === targetVertex.id && e.to.id === vertex.id)
-        );
-
-        if (!existingEdge) {
-          // STRICT ECOSYSTEM BOUNDARY ENFORCEMENT
-          // Prevent unauthorized cross-ecosystem connections as fallback behavior
-          if (vertex.ecosystem !== targetVertex.ecosystem) {
-            console.warn(`❌ BLOCKED unauthorized cross-ecosystem connection: ${vertex.id} (${vertex.ecosystem.split(':')[2]}) → ${targetVertex.id} (${targetVertex.ecosystem.split(':')[2]})`);
-            continue; // Skip this connection entirely
-          }
-
-          // Apply directional bias to connection probability
-          const isEastward = dx > 0;
-          const isWestward = dx < 0;
-
-          let biasedProbability = connectionProbability;
-          if (isEastward) {
-            biasedProbability *= 1.2; // 20% boost for eastward connections
-          } else if (isWestward) {
-            biasedProbability *= 0.8; // 20% reduction for westward connections
-          }
-
-          if (rng.next() < biasedProbability) {
-            const direction = isEastward ? 'eastward' : 'westward';
-
-        edges.push({
-          id: `${vertex.id}-${targetVertex.id}`,
-          from: vertex,
-          to: targetVertex,
-          direction: direction,
-          ecosystem: ecosystem
-        });
-
-            connectionsCreated++;
-        }
+      // Check boundaries
+      if (newGridX >= endCol || newGridX < startCol ||
+          newGridY >= metrics.gridHeight || newGridY < 0) {
+        continue;
       }
-    }
+
+      // Check if vertex already exists
+      const existingKey = `${newGridX},${newGridY}`;
+      if (spatialLookup.has(existingKey)) {
+        continue;
+      }
+
+      // Use directional probability to decide whether to create vertex
+      const probability = directionProbabilities.get(dir.key) || 0.0;
+      if (rng.next() < probability) {
+        const newVertex = createVertexAtPosition(newGridX, newGridY, ecosystem, metrics, rng);
+        spatialLookup.set(existingKey, newVertex);
+        generatedVertices.push(newVertex);
+
+        // Create edge connecting to current vertex
+        const edge: DeltaEdge = {
+          id: `${currentVertex.id}-${newVertex.id}`,
+          from: currentVertex,
+          to: newVertex,
+          direction: 'eastward',
+          ecosystem: ecosystem
+        };
+        edges.push(edge);
+
+        // Add to queue for further expansion
+        vertexQueue.push(newVertex);
+      }
     }
   }
 
-  console.log(`  Generated ${edges.length} dense mesh edges for ${ecosystem.split(':')[2]} (${vertices.length} vertices)`);
+  // Add all generated vertices to the input array so they can be used by calling code
+  for (const vertex of generatedVertices) {
+    if (!vertices.find(v => v.id === vertex.id)) {
+      vertices.push(vertex);
+    }
+  }
+
+  console.log(`  Generated ${generatedVertices.length} vertices with ${edges.length} river delta fanout edges for ${ecosystem.split(':')[2]} (origin: ${origin?.gridX},${origin?.gridY})`);
   return edges;
 }
 
@@ -210,34 +273,34 @@ function getDeltaConfig(
 ): Omit<DeltaConfig, 'ecosystem' | 'bandStart' | 'bandEnd'> {
   const baseConfigs = {
     'flux:eco:steppe:arid': {
-      branchingFactor: 1.5,  // Reduced for sparser macro-level connectivity
-      maxDepth: 5,           // Increased from 4 for better spanning
+      branchingFactor: 1.0,  // Reduced for sparser macro-level connectivity
+      maxDepth: 3,           // Increased from 4 for better spanning
       verticalSpread: 0.8    // Wide vertical spread
     },
     'flux:eco:grassland:temperate': {
-      branchingFactor: 1.5,  // Reduced for sparser macro-level connectivity
-      maxDepth: 5,           // Increased from 4 for better spanning
-      verticalSpread: 0.7    // Wide vertical spread
+      branchingFactor: 1.0,  // Reduced for sparser macro-level connectivity
+      maxDepth: 3,           // Increased from 4 for better spanning
+      verticalSpread: 0.2    // Wide vertical spread
     },
     'flux:eco:forest:temperate': {
-      branchingFactor: 1.5,  // Reduced for sparser macro-level connectivity
-      maxDepth: 4,           // Increased from 3 for better spanning
-      verticalSpread: 0.6    // Moderate spread
+      branchingFactor: 1.0,  // Reduced for sparser macro-level connectivity
+      maxDepth: 3,           // Increased from 3 for better spanning
+      verticalSpread: 0.2    // Moderate spread
     },
     'flux:eco:mountain:arid': {
-      branchingFactor: 1.5,  // Reduced for sparser macro-level connectivity
-      maxDepth: 4,           // Increased from 3 for better spanning
-      verticalSpread: 0.4    // Limited spread
+      branchingFactor: 1.0,  // Reduced for sparser macro-level connectivity
+      maxDepth: 3,           // Increased from 3 for better spanning
+      verticalSpread: 0.2    // Limited spread
     },
     'flux:eco:jungle:tropical': {
-      branchingFactor: 1.5,  // Reduced for sparser macro-level connectivity
-      maxDepth: 4,           // Increased from 3 for better spanning
-      verticalSpread: 0.5    // Moderate spread
+      branchingFactor: 1.0,  // Reduced for sparser macro-level connectivity
+      maxDepth: 2,           // Increased from 3 for better spanning
+      verticalSpread: 0.2    // Moderate spread
     },
     'flux:eco:marsh:tropical': {
-      branchingFactor: 1.5,  // Reduced for sparser macro-level connectivity
+      branchingFactor: 1.0,  // Reduced for sparser macro-level connectivity
       maxDepth: 3,           // Increased from 2 for better spanning
-      verticalSpread: 0.3    // Limited spread
+      verticalSpread: 0.2    // Limited spread
     }
   };
 
@@ -1309,57 +1372,31 @@ function analyzeDeltaSpanning(
 }
 
 /**
- * Find the origin of an ecosystem's delta - the westernmost node at the standard origin y-coordinate
+ * Get the deterministic origin of an ecosystem's delta - always at westernmost column, center row
+ * Origins are pre-created during world generation, so this function just finds the existing origin
  */
 function findDeltaOrigin(
   vertices: WorldVertex[],
   ecosystem: EcosystemName,
   metrics: SpatialMetrics
 ): WorldVertex | undefined {
-  if (vertices.length === 0) return undefined;
+  // Calculate the exact origin position deterministically
+  const boundary = getEcosystemBoundary(ecosystem, metrics);
+  const westmostCol = boundary.startCol;
+  const centerGridY = Math.floor(metrics.gridHeight / 2);
 
-  // All delta origins are vertically aligned at the middle of the world height
-  const originY = metrics.worldHeightMeters / 2;
-  const tolerance = 150; // ±150m tolerance for center line (as per cursorrules.md)
-
-  // Find vertices near the origin y-coordinate (center line)
-  const originCandidates = vertices.filter(v =>
-    Math.abs(v.y - originY) <= tolerance
+  // Find the pre-created origin vertex at the exact position
+  const existingOrigin = vertices.find(v =>
+    v.gridX === westmostCol && v.gridY === centerGridY && v.ecosystem === ecosystem
   );
 
-  if (originCandidates.length === 0) {
-    // Create a vertex on the center line if none exists (CRITICAL FIX)
-    const boundary = getEcosystemBoundary(ecosystem, metrics);
-    const westmostCol = boundary.startCol;
-
-    // Calculate center line grid position
-    const centerGridY = Math.floor(metrics.gridHeight / 2);
-    const centerWorldY = metrics.placeMargin + centerGridY * metrics.placeSpacing;
-    const westWorldX = metrics.placeMargin + westmostCol * metrics.placeSpacing;
-
-    console.log(`Creating center line origin for ${ecosystem.split(':')[2]} at (${westmostCol}, ${centerGridY})`);
-
-    const originVertex: WorldVertex = {
-      id: `origin-${ecosystem.split(':')[2]}-${westmostCol}-${centerGridY}`,
-      x: westWorldX,
-      y: centerWorldY,
-      gridX: westmostCol,
-      gridY: centerGridY,
-      ecosystem: ecosystem,
-      placeId: `flux:place:origin-${ecosystem.split(':')[2]}-${westmostCol}-${centerGridY}`
-    };
-
-    // Add to vertices array
-    vertices.push(originVertex);
-    return originVertex;
+  if (existingOrigin) {
+    return existingOrigin;
   }
 
-  // Among candidates at the origin y-coordinate, find the westernmost (leftmost)
-  const origin = originCandidates.reduce((westmost, vertex) =>
-    vertex.x < westmost.x ? vertex : westmost
-  );
-
-  return origin;
+  // This should not happen if origins were pre-created correctly
+  console.error(`ERROR: Could not find pre-created origin for ${ecosystem.split(':')[2]} at (${westmostCol}, ${centerGridY})`);
+  return undefined;
 }
 
 
@@ -1448,6 +1485,29 @@ export function generateWorld(config: WorldGenerationConfig): WorldGenerationRes
 
   const verticesByEcosystem = new Map<EcosystemName, WorldVertex[]>();
 
+  // FIRST: Create all ecosystem origins upfront to prevent duplicates
+  const allOrigins = new Map<EcosystemName, WorldVertex>();
+  ecosystems.forEach((ecosystem) => {
+    const boundary = getEcosystemBoundary(ecosystem, metrics);
+    const westmostCol = boundary.startCol;
+    const centerGridY = Math.floor(metrics.gridHeight / 2);
+    const centerWorldY = metrics.placeMargin + centerGridY * metrics.placeSpacing;
+    const westWorldX = metrics.placeMargin + westmostCol * metrics.placeSpacing;
+
+    const originVertex: WorldVertex = {
+      id: `origin-${ecosystem.split(':')[2]}-${westmostCol}-${centerGridY}`,
+      x: westWorldX,
+      y: centerWorldY,
+      gridX: westmostCol,
+      gridY: centerGridY,
+      ecosystem: ecosystem,
+      placeId: `flux:place:origin-${ecosystem.split(':')[2]}-${westmostCol}-${centerGridY}`
+    };
+
+    allOrigins.set(ecosystem, originVertex);
+    console.log(`Pre-created origin for ${ecosystem.split(':')[2]} at (${westmostCol}, ${centerGridY})`);
+  });
+
   ecosystems.forEach((ecosystem, ecosystemIndex) => {
     const startCol = currentColumn;
     const columnsForThisEcosystem = baseColumnsPerEcosystem + (ecosystemIndex < remainderColumns ? 1 : 0);
@@ -1473,51 +1533,15 @@ export function generateWorld(config: WorldGenerationConfig): WorldGenerationRes
 
     const ecosystemVertices: WorldVertex[] = [];
 
-    // Create river delta pattern within this ecosystem's spatial bounds
-    for (let col = startCol; col < endCol; col++) {
-      for (let row = 0; row < metrics.gridHeight; row++) {
-        // Calculate probability based on ecosystem connectivity target and delta shape
-        let placeProbability = 0.3; // Base probability
-
-        // Uniform probability across all ecosystems for consistent connectivity
-        placeProbability = 0.5; // 50% probability for all ecosystems
-
-        // Add river delta flow pattern using golden ratio proportions
-        const verticalCenter = metrics.gridHeight / 2;
-        const verticalDistanceFromCenter = Math.abs(row - verticalCenter) / verticalCenter;
-
-        // Use golden ratio to create natural flow concentration
-        const flowBonus = (1 - Math.pow(verticalDistanceFromCenter, INVERSE_GOLDEN_RATIO)) * 0.3;
-
-        // Golden ratio eastward flow gradient
-        const eastwardProgress = (col - startCol) / (endCol - startCol);
-        const eastwardBonus = Math.pow(eastwardProgress, INVERSE_GOLDEN_RATIO) * 0.2;
-
-        placeProbability += flowBonus + eastwardBonus;
-        placeProbability = Math.min(0.8, placeProbability); // Cap at 80%
-
-        if (rng.next() < placeProbability) {
-          // Calculate world position from grid coordinates - snap to 8-directional grid
-          const worldX = metrics.placeMargin + col * metrics.placeSpacing;
-          const worldY = metrics.placeMargin + row * metrics.placeSpacing;
-
-          const vertexId = generateVertexId(rng);
-          const placeId = `flux:place:${vertexId}`;
-
-          const vertex: WorldVertex = {
-            id: vertexId,
-            x: worldX,
-            y: worldY,
-            gridX: col,
-            gridY: row,
-            ecosystem: ecosystem,
-            placeId: placeId
-          };
-
-          ecosystemVertices.push(vertex);
-        }
-      }
+    // Add the pre-created origin vertex to this ecosystem
+    const originVertex = allOrigins.get(ecosystem);
+    if (originVertex) {
+      ecosystemVertices.push(originVertex);
     }
+
+    // NEW APPROACH: Generate vertices organically through river delta flow
+    // The river delta system will create all vertices as it flows eastward from the origin
+    // This ensures every vertex is connected by construction - no disconnected subgraphs possible
 
     verticesByEcosystem.set(ecosystem, ecosystemVertices);
     console.log(`Generated ${ecosystemVertices.length} vertices for ${ecosystem.split(':')[2]}`);
