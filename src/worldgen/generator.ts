@@ -64,18 +64,27 @@ export function generateWorld(config: WorldGenerationConfig = {}): WorldGenerati
   console.log('\n🌊 Phase 2: Generating continuous river flow...');
   const { vertices, edges } = generateRiverFlow(spatialMetrics, ecosystemBands, fullConfig, rng);
 
+  // PHASE 2.5: Apply diagonal intersection rule (convert X patterns to squares)
+  console.log('\n🔲 Phase 2.5: Applying diagonal intersection rule...');
+  const { processedVertices, processedEdges, squaresCreated } = applyDiagonalIntersectionRule(vertices, edges);
+  console.log(`🔲 Diagonal intersection rule created ${squaresCreated} squares`);
+
   // PHASE 3: Apply Gaussian dithering to transition zones
   console.log('\n🎲 Phase 3: Applying Gaussian ecosystem dithering...');
   console.log(`🎲 Dithering strength: ${fullConfig.ditheringStrength} (${fullConfig.ditheringStrength === 0 ? 'no dithering' : fullConfig.ditheringStrength === 1 ? 'maximum dithering' : 'moderate dithering'})`);
-  const { ditheredVertices, ditheringStats } = applyEcosystemDithering(vertices, ecosystemBands, fullConfig, rng);
+  const { ditheredVertices, ditheringStats } = applyEcosystemDithering(processedVertices, ecosystemBands, fullConfig, rng);
 
-  // PHASE 3.5: Apply eastern marsh zone
-  console.log('\n🏞️  Phase 3.5: Applying eastern marsh zone...');
-  const { marshVertices, marshStats } = applyEasternMarshZone(ditheredVertices);
+  // PHASE 3.5: Adjust connectivity per ecosystem
+  console.log('\n🔗 Phase 3.5: Adjusting connectivity per ecosystem...');
+  const { connectivityVertices, connectivityStats: adjustedConnectivityStats, adjustedEdges } = adjustEcosystemConnectivity(ditheredVertices, processedEdges, rng);
+
+  // PHASE 3.6: Apply eastern marsh zone
+  console.log('\n🏞️  Phase 3.6: Applying eastern marsh zone...');
+  const { marshVertices, marshStats } = applyEasternMarshZone(connectivityVertices);
 
   // PHASE 4: Validate connectivity and ecosystem distribution
   console.log('\n✅ Phase 4: Validating connectivity and distribution...');
-  const connectivityStats = validateConnectivity(marshVertices, edges);
+  const connectivityStats = validateConnectivity(marshVertices, adjustedEdges);
 
   // PHASE 5: Generate places and exits (placeholder for now)
   console.log('\n🏗️  Phase 5: Generating places and exits...');
@@ -83,16 +92,16 @@ export function generateWorld(config: WorldGenerationConfig = {}): WorldGenerati
 
   // PHASE 6: Format output for React Viewport component
   console.log('\n🎨 Phase 6: Formatting visualization data...');
-  const visualizationData = formatVisualizationData(marshVertices, edges, ecosystemBands, spatialMetrics);
+  const visualizationData = formatVisualizationData(marshVertices, adjustedEdges, ecosystemBands, spatialMetrics);
 
   const generationTime = performance.now() - startTime;
   console.log(`\n🎉 World generation complete in ${generationTime.toFixed(1)}ms`);
-  console.log(`📊 Generated ${marshVertices.length} vertices, ${edges.length} edges`);
+  console.log(`📊 Generated ${marshVertices.length} vertices, ${adjustedEdges.length} edges`);
   console.log(`🔗 Connectivity: ${connectivityStats.avgConnectionsPerVertex.toFixed(2)} avg connections per vertex`);
 
   return {
     vertices: marshVertices,
-    edges,
+    edges: adjustedEdges,
     ecosystemBands,
     spatialMetrics,
     ditheringStats,
@@ -116,7 +125,7 @@ function defineEcosystemBands(metrics: SpatialMetrics): EcosystemBand[] {
     const startX = index * bandWidth;
     const endX = (index + 1) * bandWidth;
     const startCol = Math.floor(index * metrics.gridWidth / ECOSYSTEM_PROGRESSION.length);
-    const endCol = Math.floor((index + 1) * metrics.gridWidth / ECOSYSTEM_PROGRESSION.length);
+    const endCol = Math.ceil((index + 1) * metrics.gridWidth / ECOSYSTEM_PROGRESSION.length);
 
     // Calculate golden ratio zones
     const pureZoneWidth = bandWidth * PURE_RATIO; // 38.2%
@@ -315,11 +324,25 @@ function generateFlowFromHead(
       weight *= 0.4; // Discourage getting close to boundaries
     }
 
-    // Ensure eastward progression: if we're not at the target column yet,
-    // slightly favor eastward moves to prevent stalling
-    if (flowHead.gridX < targetCol - 1) {
+    // Ensure eastward progression: progressively increase eastward bias as we approach the boundary
+    const distanceFromEasternBoundary = metrics.gridWidth - 1 - flowHead.gridX;
+
+    if (flowHead.gridX < targetCol) {
       if (move.dx === 1) {
-        weight *= 1.1; // Slight boost for eastward moves when far from target
+        // Scale eastward bias based on proximity to eastern boundary
+        if (distanceFromEasternBoundary <= 2) {
+          // Very close to boundary - strong eastward bias
+          weight *= 3.0;
+        } else if (distanceFromEasternBoundary <= 5) {
+          // Approaching boundary - moderate eastward bias
+          weight *= 2.0;
+        } else {
+          // Far from boundary - slight eastward bias
+          weight *= 1.3;
+        }
+      } else if (move.dx === 0 && distanceFromEasternBoundary <= 2) {
+        // Reduce vertical move weight when very close to boundary
+        weight *= 0.3;
       }
     }
 
@@ -462,6 +485,234 @@ function determineFlowDirection(angle: number): 'eastward' | 'westward' | 'north
 }
 
 /**
+ * Apply diagonal intersection rule: Convert X patterns to squares
+ * When two diagonal edges intersect and form a perfect 2x2 square,
+ * add the missing orthogonal connections to complete the square.
+ */
+function applyDiagonalIntersectionRule(
+  vertices: WorldVertex[],
+  edges: RiverEdge[]
+): {
+  processedVertices: WorldVertex[],
+  processedEdges: RiverEdge[],
+  squaresCreated: number
+} {
+  console.log('🔲 Applying diagonal intersection rule...');
+
+  const processedVertices: WorldVertex[] = vertices.map(v => ({
+    ...v,
+    connections: [...v.connections]
+  }));
+
+  const processedEdges: RiverEdge[] = [...edges];
+
+  // Create vertex lookup map for efficient access
+  const vertexMap = new Map<string, WorldVertex>();
+  processedVertices.forEach(v => vertexMap.set(v.id, v));
+
+  // Find all diagonal edges
+  const diagonalEdges = processedEdges.filter(edge => {
+    const angle = Math.abs(edge.angle);
+    return angle === 45 || angle === 135 || angle === 225 || angle === 315;
+  });
+
+  console.log(`🔍 Found ${diagonalEdges.length} diagonal edges to analyze`);
+
+  let squaresCreated = 0;
+
+  // Find all potential 2x2 squares by checking diagonal edge intersections
+  for (let i = 0; i < diagonalEdges.length; i++) {
+    for (let j = i + 1; j < diagonalEdges.length; j++) {
+      const edge1 = diagonalEdges[i];
+      const edge2 = diagonalEdges[j];
+
+      // Check if these edges could form part of a 2x2 square
+      const squareVertices = findSquareVertices(edge1, edge2, vertexMap);
+
+      if (squareVertices) {
+        const { topLeft, topRight, bottomLeft, bottomRight } = squareVertices;
+
+        // Check if this is a valid 2x2 square with diagonal intersections
+        if (isValidDiagonalIntersection(edge1, edge2, squareVertices)) {
+          // Add the missing orthogonal connections
+          const addedConnections = addOrthogonalConnections(
+            squareVertices,
+            processedVertices,
+            processedEdges,
+            vertexMap
+          );
+
+          if (addedConnections > 0) {
+            squaresCreated++;
+            console.log(`🔲 Created square at (${topLeft.gridX},${topLeft.gridY}) - added ${addedConnections} connections`);
+          }
+        }
+      }
+    }
+  }
+
+  console.log(`🔲 Diagonal intersection rule complete: ${squaresCreated} squares created`);
+
+  return {
+    processedVertices,
+    processedEdges,
+    squaresCreated
+  };
+}
+
+/**
+ * Find the four vertices that would form a 2x2 square from two diagonal edges
+ */
+function findSquareVertices(
+  edge1: RiverEdge,
+  edge2: RiverEdge,
+  vertexMap: Map<string, WorldVertex>
+): {
+  topLeft: WorldVertex,
+  topRight: WorldVertex,
+  bottomLeft: WorldVertex,
+  bottomRight: WorldVertex
+} | null {
+  const vertex1A = vertexMap.get(edge1.fromVertexId);
+  const vertex1B = vertexMap.get(edge1.toVertexId);
+  const vertex2A = vertexMap.get(edge2.fromVertexId);
+  const vertex2B = vertexMap.get(edge2.toVertexId);
+
+  if (!vertex1A || !vertex1B || !vertex2A || !vertex2B) {
+    return null;
+  }
+
+  // Collect all four vertices involved in the two edges
+  const allVertices = [vertex1A, vertex1B, vertex2A, vertex2B];
+
+  // Remove duplicates (in case edges share vertices)
+  const uniqueVertices = allVertices.filter((v, index, arr) =>
+    arr.findIndex(other => other.id === v.id) === index
+  );
+
+  // We need exactly 4 vertices for a square
+  if (uniqueVertices.length !== 4) {
+    return null;
+  }
+
+  // Find the bounding box
+  const minX = Math.min(...uniqueVertices.map(v => v.gridX));
+  const maxX = Math.max(...uniqueVertices.map(v => v.gridX));
+  const minY = Math.min(...uniqueVertices.map(v => v.gridY));
+  const maxY = Math.max(...uniqueVertices.map(v => v.gridY));
+
+  // Check if this forms a valid 2x2 square (difference of 1 in both dimensions)
+  if (maxX - minX !== 1 || maxY - minY !== 1) {
+    return null;
+  }
+
+  // Find vertices at each corner
+  const topLeft = uniqueVertices.find(v => v.gridX === minX && v.gridY === minY);
+  const topRight = uniqueVertices.find(v => v.gridX === maxX && v.gridY === minY);
+  const bottomLeft = uniqueVertices.find(v => v.gridX === minX && v.gridY === maxY);
+  const bottomRight = uniqueVertices.find(v => v.gridX === maxX && v.gridY === maxY);
+
+  if (!topLeft || !topRight || !bottomLeft || !bottomRight) {
+    return null;
+  }
+
+  return { topLeft, topRight, bottomLeft, bottomRight };
+}
+
+/**
+ * Check if two diagonal edges form a valid X intersection in the square
+ */
+function isValidDiagonalIntersection(
+  edge1: RiverEdge,
+  edge2: RiverEdge,
+  square: {
+    topLeft: WorldVertex,
+    topRight: WorldVertex,
+    bottomLeft: WorldVertex,
+    bottomRight: WorldVertex
+  }
+): boolean {
+  // Get the vertices for each edge
+  const edge1Vertices = [edge1.fromVertexId, edge1.toVertexId];
+  const edge2Vertices = [edge2.fromVertexId, edge2.toVertexId];
+
+  // Check if we have the two diagonal connections for an X pattern
+  // Diagonal 1: topLeft to bottomRight
+  const hasDiagonal1 =
+    (edge1Vertices.includes(square.topLeft.id) && edge1Vertices.includes(square.bottomRight.id)) ||
+    (edge2Vertices.includes(square.topLeft.id) && edge2Vertices.includes(square.bottomRight.id));
+
+  // Diagonal 2: topRight to bottomLeft
+  const hasDiagonal2 =
+    (edge1Vertices.includes(square.topRight.id) && edge1Vertices.includes(square.bottomLeft.id)) ||
+    (edge2Vertices.includes(square.topRight.id) && edge2Vertices.includes(square.bottomLeft.id));
+
+  return hasDiagonal1 && hasDiagonal2;
+}
+
+/**
+ * Add the missing orthogonal connections to complete the square
+ */
+function addOrthogonalConnections(
+  square: {
+    topLeft: WorldVertex,
+    topRight: WorldVertex,
+    bottomLeft: WorldVertex,
+    bottomRight: WorldVertex
+  },
+  vertices: WorldVertex[],
+  edges: RiverEdge[],
+  vertexMap: Map<string, WorldVertex>
+): number {
+  let addedConnections = 0;
+
+  // Define the orthogonal connections needed for a complete square
+  const orthogonalConnections = [
+    { from: square.topLeft, to: square.topRight, angle: 0 },      // horizontal top
+    { from: square.topRight, to: square.bottomRight, angle: 90 }, // vertical right
+    { from: square.bottomRight, to: square.bottomLeft, angle: 180 }, // horizontal bottom
+    { from: square.bottomLeft, to: square.topLeft, angle: 270 }   // vertical left
+  ];
+
+  for (const connection of orthogonalConnections) {
+    const fromVertex = vertexMap.get(connection.from.id);
+    const toVertex = vertexMap.get(connection.to.id);
+
+    if (!fromVertex || !toVertex) continue;
+
+    // Check if connection already exists
+    if (fromVertex.connections.includes(toVertex.id)) {
+      continue;
+    }
+
+    // Add the connection to both vertices
+    fromVertex.connections.push(toVertex.id);
+    toVertex.connections.push(fromVertex.id);
+
+    // Calculate distance and flow direction
+    const dx = toVertex.x - fromVertex.x;
+    const dy = toVertex.y - fromVertex.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    const flowDirection = determineFlowDirection(connection.angle);
+
+    // Create the edge
+    const newEdge: RiverEdge = {
+      id: `${fromVertex.id}-${toVertex.id}`,
+      fromVertexId: fromVertex.id,
+      toVertexId: toVertex.id,
+      flowDirection,
+      distance,
+      angle: connection.angle
+    };
+
+    edges.push(newEdge);
+    addedConnections++;
+  }
+
+  return addedConnections;
+}
+
+/**
  * PHASE 3: Apply Gaussian dithering to transition zones
  */
 function applyEcosystemDithering(
@@ -578,6 +829,260 @@ function applyEasternMarshZone(vertices: WorldVertex[]): {
   console.log(`🏞️  Eastern marsh zone applied: ${marshCount} vertices in column ${easternColumn} converted to marsh`);
 
   return { marshVertices, marshStats };
+}
+
+/**
+ * PHASE 3.5: Adjust ecosystem connectivity to biological targets
+ */
+function adjustEcosystemConnectivity(
+  vertices: WorldVertex[],
+  edges: RiverEdge[],
+  rng: () => number
+): {
+  connectivityVertices: WorldVertex[],
+  adjustedEdges: RiverEdge[],
+  connectivityStats: {
+    originalConnectivity: Record<EcosystemType, number>,
+    targetConnectivity: Record<EcosystemType, number>,
+    adjustedConnectivity: Record<EcosystemType, number>,
+    edgesAdded: number,
+    edgesRemoved: number
+  }
+} {
+  console.log(`🔗 Adjusting ecosystem connectivity...`);
+
+  // Target connectivity per ecosystem
+  const TARGET_CONNECTIVITY: Record<EcosystemType, number> = {
+    steppe: 3.0,
+    grassland: 3.0,
+    forest: 2.0,
+    jungle: 2.0,
+    mountain: 1.5,
+    marsh: 2.0  // Default for marsh (shouldn't be used at this stage)
+  };
+
+  // Create working copies
+  const workingVertices: WorldVertex[] = vertices.map(v => ({ ...v, connections: [...v.connections] }));
+  const workingEdges: RiverEdge[] = [...edges];
+
+  // Calculate current connectivity per ecosystem
+  const originalConnectivity = calculateEcosystemConnectivity(workingVertices);
+  console.log(`🔗 Original connectivity:`, originalConnectivity);
+
+  let edgesAdded = 0;
+  let edgesRemoved = 0;
+
+  // Process each ecosystem
+  for (const ecosystem of Object.keys(TARGET_CONNECTIVITY) as EcosystemType[]) {
+    const ecosystemVertices = workingVertices.filter(v => v.ecosystem === ecosystem);
+    if (ecosystemVertices.length === 0) continue;
+
+    const currentConnectivity = originalConnectivity[ecosystem] || 0;
+    const targetConnectivity = TARGET_CONNECTIVITY[ecosystem];
+    const delta = targetConnectivity - currentConnectivity;
+
+    console.log(`🔗 ${ecosystem}: ${currentConnectivity.toFixed(2)} → ${targetConnectivity} (Δ${delta.toFixed(2)})`);
+
+    if (delta > 0.2) {
+      // Need more connections - add edges
+      const edgesToAdd = Math.ceil(ecosystemVertices.length * delta / 2); // Divide by 2 since each edge adds 2 connections
+      edgesAdded += addEcosystemEdges(ecosystemVertices, workingVertices, workingEdges, edgesToAdd, rng);
+    } else if (delta < -0.2) {
+      // Need fewer connections - remove edges
+      const edgesToRemove = Math.ceil(ecosystemVertices.length * Math.abs(delta) / 2);
+      edgesRemoved += removeEcosystemEdges(ecosystemVertices, workingVertices, workingEdges, edgesToRemove, rng);
+    }
+  }
+
+  // Verify graph connectivity after modifications
+  if (!verifyGraphConnectivity(workingVertices, workingEdges)) {
+        console.warn(`⚠️  Graph connectivity compromised, reverting changes`);
+    return {
+      connectivityVertices: vertices,
+      adjustedEdges: edges,
+      connectivityStats: {
+        originalConnectivity,
+        targetConnectivity: TARGET_CONNECTIVITY,
+        adjustedConnectivity: originalConnectivity,
+        edgesAdded: 0,
+        edgesRemoved: 0
+      }
+    };
+  }
+
+  const adjustedConnectivity = calculateEcosystemConnectivity(workingVertices);
+  console.log(`🔗 Adjusted connectivity:`, adjustedConnectivity);
+  console.log(`🔗 Connectivity adjustment complete: +${edgesAdded} edges, -${edgesRemoved} edges`);
+
+    return {
+    connectivityVertices: workingVertices,
+    adjustedEdges: workingEdges,
+    connectivityStats: {
+      originalConnectivity,
+      targetConnectivity: TARGET_CONNECTIVITY,
+      adjustedConnectivity,
+      edgesAdded,
+      edgesRemoved
+    }
+  };
+}
+
+/**
+ * Calculate average connectivity per ecosystem
+ */
+function calculateEcosystemConnectivity(vertices: WorldVertex[]): Record<EcosystemType, number> {
+  const ecosystemStats: Record<string, { totalConnections: number, vertexCount: number }> = {};
+
+  vertices.forEach(vertex => {
+    const ecosystem = vertex.ecosystem;
+    if (!ecosystemStats[ecosystem]) {
+      ecosystemStats[ecosystem] = { totalConnections: 0, vertexCount: 0 };
+    }
+    ecosystemStats[ecosystem].totalConnections += vertex.connections.length;
+    ecosystemStats[ecosystem].vertexCount += 1;
+  });
+
+  const result: Record<EcosystemType, number> = {} as Record<EcosystemType, number>;
+  Object.entries(ecosystemStats).forEach(([ecosystem, stats]) => {
+    result[ecosystem as EcosystemType] = stats.vertexCount > 0 ? stats.totalConnections / stats.vertexCount : 0;
+  });
+
+  return result;
+}
+
+/**
+ * Add edges within an ecosystem to increase connectivity
+ */
+function addEcosystemEdges(
+  ecosystemVertices: WorldVertex[],
+  allVertices: WorldVertex[],
+  edges: RiverEdge[],
+  targetCount: number,
+  rng: () => number
+): number {
+  let edgesAdded = 0;
+  const maxDistance = 600; // Maximum distance for new edges (2x place spacing)
+
+  for (let i = 0; i < targetCount && edgesAdded < targetCount; i++) {
+    // Pick two random vertices in this ecosystem
+    const vertex1 = ecosystemVertices[Math.floor(rng() * ecosystemVertices.length)];
+    const vertex2 = ecosystemVertices[Math.floor(rng() * ecosystemVertices.length)];
+
+    if (vertex1.id === vertex2.id) continue;
+    if (vertex1.connections.includes(vertex2.id)) continue; // Already connected
+
+    // Check distance
+    const distance = Math.sqrt(
+      Math.pow(vertex1.x - vertex2.x, 2) +
+      Math.pow(vertex1.y - vertex2.y, 2)
+    );
+
+    if (distance <= maxDistance) {
+      // Add bidirectional connection
+      vertex1.connections.push(vertex2.id);
+      vertex2.connections.push(vertex1.id);
+
+      // Create edge object
+      const dx = vertex2.x - vertex1.x;
+      const dy = vertex2.y - vertex1.y;
+      const angle = Math.round(Math.atan2(dy, dx) * 180 / Math.PI / 45) * 45;
+
+      edges.push({
+        id: `conn-${vertex1.id}-${vertex2.id}`,
+        fromVertexId: vertex1.id,
+        toVertexId: vertex2.id,
+        flowDirection: determineFlowDirection(angle),
+        distance,
+        angle
+      });
+
+      edgesAdded++;
+    }
+  }
+
+  return edgesAdded;
+}
+
+/**
+ * Remove edges within an ecosystem to decrease connectivity
+ */
+function removeEcosystemEdges(
+  ecosystemVertices: WorldVertex[],
+  allVertices: WorldVertex[],
+  edges: RiverEdge[],
+  targetCount: number,
+  rng: () => number
+): number {
+  let edgesRemoved = 0;
+  const vertexMap = new Map(allVertices.map(v => [v.id, v]));
+
+  for (let i = 0; i < targetCount && edgesRemoved < targetCount; i++) {
+    // Find removable edges (edges that don't break connectivity)
+    const removableEdges = edges.filter(edge => {
+      const fromVertex = vertexMap.get(edge.fromVertexId);
+      const toVertex = vertexMap.get(edge.toVertexId);
+
+      return fromVertex && toVertex &&
+             fromVertex.ecosystem === toVertex.ecosystem && // Same ecosystem
+             ecosystemVertices.some(v => v.id === fromVertex.id) && // In target ecosystem
+             fromVertex.connections.length > 1 && // From vertex has multiple connections
+             toVertex.connections.length > 1 && // To vertex has multiple connections
+             !fromVertex.isOrigin && !toVertex.isOrigin; // Don't disconnect origin
+    });
+
+    if (removableEdges.length === 0) break;
+
+    // Pick random removable edge
+    const edgeToRemove = removableEdges[Math.floor(rng() * removableEdges.length)];
+    const fromVertex = vertexMap.get(edgeToRemove.fromVertexId)!;
+    const toVertex = vertexMap.get(edgeToRemove.toVertexId)!;
+
+    // Remove bidirectional connection
+    fromVertex.connections = fromVertex.connections.filter(id => id !== toVertex.id);
+    toVertex.connections = toVertex.connections.filter(id => id !== fromVertex.id);
+
+    // Remove edge
+    const edgeIndex = edges.findIndex(e => e.id === edgeToRemove.id);
+    if (edgeIndex >= 0) {
+      edges.splice(edgeIndex, 1);
+      edgesRemoved++;
+    }
+  }
+
+  return edgesRemoved;
+}
+
+/**
+ * Verify that the graph remains connected from the origin
+ */
+function verifyGraphConnectivity(vertices: WorldVertex[], edges: RiverEdge[]): boolean {
+  const origin = vertices.find(v => v.isOrigin);
+  if (!origin) return false;
+
+  const visited = new Set<string>();
+  const queue = [origin.id];
+  visited.add(origin.id);
+
+  while (queue.length > 0) {
+    const currentId = queue.shift()!;
+    const currentVertex = vertices.find(v => v.id === currentId);
+    if (!currentVertex) continue;
+
+    for (const connectionId of currentVertex.connections) {
+      if (!visited.has(connectionId)) {
+        visited.add(connectionId);
+        queue.push(connectionId);
+      }
+    }
+  }
+
+  const reachableVertices = visited.size;
+  const totalVertices = vertices.length;
+  const connectivityRatio = reachableVertices / totalVertices;
+
+  console.log(`🔗 Connectivity check: ${reachableVertices}/${totalVertices} vertices reachable (${(connectivityRatio * 100).toFixed(1)}%)`);
+
+  return connectivityRatio >= 0.95; // Allow for some isolated vertices, but most should be connected
 }
 
 /**
@@ -761,7 +1266,7 @@ function calculateSpatialMetrics(config: Required<WorldGenerationConfig>): Spati
   const placeSpacing = 300;
   const placeMargin = 200;
 
-  const gridWidth = Math.floor((worldWidthMeters - 2 * placeMargin) / placeSpacing);
+  const gridWidth = Math.ceil((worldWidthMeters - 2 * placeMargin) / placeSpacing);
   const gridHeight = Math.floor((worldHeightMeters - 2 * placeMargin) / placeSpacing);
 
   return {
