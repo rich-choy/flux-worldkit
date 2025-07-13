@@ -1,9 +1,9 @@
 import { useState, useRef, useCallback } from 'react';
-import type { WorldGenerationResult } from '~/worldgen/types';
+import type { WorldGenerationResult, WorldGenerationConfig } from '~/worldgen/types';
 import type { WorldGenerationMessage, WorldGenerationResponse } from '~/workers/worldgen.worker';
 
 interface UseWorldGenerationReturn {
-  generateWorld: (config: { minPlaces: number; seed: number }) => Promise<WorldGenerationResult>
+  generateWorld: (config: WorldGenerationConfig) => Promise<WorldGenerationResult>
   isGenerating: boolean
   error: string | null
   clearError: () => void
@@ -29,7 +29,7 @@ export const useWorldGeneration = (): UseWorldGenerationReturn => {
     return workerRef.current
   }, [])
 
-  const generateWorld = useCallback(async (config: { minPlaces: number; seed: number }): Promise<WorldGenerationResult> => {
+  const generateWorld = useCallback(async (config: WorldGenerationConfig): Promise<WorldGenerationResult> => {
     setIsGenerating(true)
     setError(null)
 

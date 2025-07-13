@@ -1,35 +1,13 @@
 /**
- * Unit tests for worldgen connectivity preservation
- * Tests the actual implementation in integration.ts
+ * Unit tests for spatial worldgen connectivity validation
+ * Tests the spatial implementation in river-delta.ts
  */
 
 import { describe, it, expect } from 'vitest';
-import { EcosystemName } from './types.js';
-import { generateWorld, getConnectedComponents } from './integration.js';
-
-// Simple type definitions for testing
-type Place = {
-  id: string;
-  name: string;
-  description: string;
-  exits: Record<string, any>;
-  entities: Record<string, any>;
-  ecology: any;
-  weather: any;
-};
-
-enum Direction {
-  NORTH = 'north',
-  SOUTH = 'south',
-  EAST = 'east',
-  WEST = 'west',
-  NORTHEAST = 'northeast',
-  NORTHWEST = 'northwest',
-  SOUTHEAST = 'southeast',
-  SOUTHWEST = 'southwest',
-  UP = 'up',
-  DOWN = 'down'
-}
+import { EcosystemName, type WorldGenerationConfig, calculateSpatialMetrics } from './types.js';
+import { generateWorld } from './river-delta.js';
+import type { Place } from '@flux';
+import { Direction, createExit } from '@flux';
 
 // Simple test utilities
 function createTestPlace(overrides: any = {}): Place {
@@ -56,14 +34,6 @@ function createTestPlace(overrides: any = {}): Place {
       timescale: 1
     },
     ...overrides
-  };
-}
-
-function createExit(config: { direction: Direction; label: string; to: string }) {
-  return {
-    direction: config.direction,
-    label: config.label,
-    to: config.to
   };
 }
 
@@ -117,10 +87,54 @@ function connectPlaces(place1: Place, place2: Place, direction1: Direction, dire
   place2.exits[direction2] = exit2;
 }
 
-// Test helper to check if graph is connected using the same logic as the real implementation
+// Test helper to check if graph is connected using BFS
 function isGraphConnected(places: Place[]): boolean {
   const components = getConnectedComponents(places);
   return components.length <= 1;
+}
+
+// Test helper to get connected components
+function getConnectedComponents(places: Place[]): Place[][] {
+  const visited = new Set<string>();
+  const components: Place[][] = [];
+
+  for (const place of places) {
+    if (!visited.has(place.id)) {
+      const component: Place[] = [];
+      const stack = [place];
+
+      while (stack.length > 0) {
+        const current = stack.pop()!;
+        if (visited.has(current.id)) continue;
+
+        visited.add(current.id);
+        component.push(current);
+
+        // Find all connected places
+        for (const exit of Object.values(current.exits)) {
+          const targetPlace = places.find(p => p.id === exit.to);
+          if (targetPlace && !visited.has(targetPlace.id)) {
+            stack.push(targetPlace);
+          }
+        }
+
+        // Also check for reverse connections
+        for (const otherPlace of places) {
+          if (visited.has(otherPlace.id)) continue;
+          for (const exit of Object.values(otherPlace.exits)) {
+            if (exit.to === current.id) {
+              stack.push(otherPlace);
+              break;
+            }
+          }
+        }
+      }
+
+      components.push(component);
+    }
+  }
+
+  return components;
 }
 
 // Test helper to count total connections
@@ -139,7 +153,44 @@ function areConnected(place1: Place, place2: Place): boolean {
          Object.values(place2.exits).some(exit => exit.to === place1.id);
 }
 
-describe('Worldgen Connectivity Preservation', () => {
+// Test helper to calculate average connections per ecosystem
+function calculateEcosystemConnectivity(places: Place[], vertices?: any[]): Record<string, { count: number; avgConnections: number }> {
+  const ecosystemStats: Record<string, { totalConnections: number; placeCount: number }> = {};
+
+  // Create mapping from place ID to ecosystem if vertices are provided
+  let placeToEcosystem: Map<string, string> | undefined;
+  if (vertices) {
+    placeToEcosystem = new Map();
+    vertices.forEach(vertex => {
+      placeToEcosystem!.set(vertex.placeId, vertex.ecosystem);
+    });
+  }
+
+  for (const place of places) {
+    // Get ecosystem from place ecology (test places) or vertex mapping (real places)
+    const ecosystem = (place as any).ecology?.ecosystem ||
+                      (placeToEcosystem?.get(place.id)) ||
+                      'unknown';
+
+    if (!ecosystemStats[ecosystem]) {
+      ecosystemStats[ecosystem] = { totalConnections: 0, placeCount: 0 };
+    }
+    ecosystemStats[ecosystem].totalConnections += countPlaceConnections(place);
+    ecosystemStats[ecosystem].placeCount++;
+  }
+
+  const result: Record<string, { count: number; avgConnections: number }> = {};
+  for (const [ecosystem, stats] of Object.entries(ecosystemStats)) {
+    result[ecosystem] = {
+      count: stats.placeCount,
+      avgConnections: stats.totalConnections / stats.placeCount
+    };
+  }
+
+  return result;
+}
+
+describe('Spatial Worldgen Connectivity Validation', () => {
   describe('Graph Connectivity Detection', () => {
     it('should detect connected simple chain', () => {
       const places = [
@@ -180,85 +231,149 @@ describe('Worldgen Connectivity Preservation', () => {
     });
   });
 
-  describe('World Generation Integration', () => {
-    it('should generate a connected world with proper ecosystem distribution', () => {
-      const config = {
-        seed: 42,
-        minPlaces: 25,
-        maxPlaces: 50,
-        worldAspectRatio: 1.618 as const
+  describe('Spatial World Generation', () => {
+    it('should generate a connected world with proper spatial positioning', () => {
+      const config: WorldGenerationConfig = {
+        worldWidth: 5.0,  // 5km x 3km small world
+        worldHeight: 3.0,
+        placeSize: 100,
+        placeMargin: 200,
+        seed: 42
       };
 
       const result = generateWorld(config);
+      const metrics = calculateSpatialMetrics(config);
+
+      console.log(`Generated ${result.places.length} places in ${config.worldWidth}km × ${config.worldHeight}km world`);
+      console.log(`Expected capacity: ${metrics.totalPlacesCapacity} places`);
 
       // Basic structural tests
-      expect(result.places.length).toBeGreaterThanOrEqual(config.minPlaces);
-      // maxPlaces is a soft limit, so we'll check it's reasonable but not strict
-      expect(result.places.length).toBeLessThan(config.maxPlaces * 2); // Within 2x of soft limit
+      expect(result.places.length).toBeGreaterThan(0);
       expect(result.places).toHaveLength(result.vertices.length);
 
-      // All places should have ecosystem assignments
+      // All places should have basic properties
       result.places.forEach(place => {
-        expect(place.ecology.ecosystem).toBeDefined();
         expect(place.name).toBeDefined();
         expect(place.description).toBeDefined();
+        expect(place.id).toBeDefined();
       });
 
       // Graph should be connected
-      expect(isGraphConnected(result.places)).toBe(true);
+      expect(isGraphConnected(result.places as any)).toBe(true);
 
       // Should have reasonable connection density
       const totalConnections = countTotalConnections(result.places);
       const averageConnections = totalConnections / result.places.length;
       expect(averageConnections).toBeGreaterThan(1); // At least some connections
       expect(averageConnections).toBeLessThan(8); // Not too dense
+
+      // Should have spatial positioning
+      result.vertices.forEach(vertex => {
+        expect(vertex.x).toBeGreaterThanOrEqual(0);
+        expect(vertex.y).toBeGreaterThanOrEqual(0);
+        expect(vertex.x).toBeLessThanOrEqual(config.worldWidth * 1000);
+        expect(vertex.y).toBeLessThanOrEqual(config.worldHeight * 1000);
+        expect(vertex.gridX).toBeGreaterThanOrEqual(0);
+        expect(vertex.gridY).toBeGreaterThanOrEqual(0);
+      });
     });
 
-    it.each([
-      { seed: 389087, description: 'extremely fragmented world' },
-      { seed: 890367, description: 'another challenging connectivity scenario' }
-    ])('should maintain connectivity for large worlds with challenging seeds (seed: $seed - $description)', ({ seed }) => {
-      const config = {
-        seed,
-        minPlaces: 1000, // Hard minimum - algorithm must generate at least this many
-        maxPlaces: 1500, // Soft maximum for large worlds
-        worldAspectRatio: 1.618 as const
+    it('should meet target connectivity levels per ecosystem', () => {
+      const config: WorldGenerationConfig = {
+        worldWidth: 14.5,  // Default size from cursorrules.md
+        worldHeight: 9.0,
+        placeSize: 100,
+        placeMargin: 200,
+        seed: 123
       };
 
       const result = generateWorld(config);
+      const ecosystemStats = calculateEcosystemConnectivity(result.places, result.vertices);
 
-      // Should generate at least the minimum number of places (hard limit)
-      expect(result.places.length).toBeGreaterThanOrEqual(config.minPlaces);
-      expect(result.places).toHaveLength(result.vertices.length);
+      console.log('Ecosystem connectivity stats:', ecosystemStats);
 
-      // Check connectivity - some challenging seeds may create disconnected worlds
-      const components = getConnectedComponents(result.places);
-      const largestComponent = components.reduce((max: Place[], component: Place[]) =>
-        component.length > max.length ? component : max, components[0]);
-      const largestComponentRatio = largestComponent.length / result.places.length;
+      // Target connectivity levels from cursorrules.md
+      const targetConnectivity = {
+        'flux:eco:steppe:arid': 4.0,
+        'flux:eco:grassland:temperate': 3.2,
+        'flux:eco:forest:temperate': 2.8,
+        'flux:eco:jungle:tropical': 2.4,
+        'flux:eco:mountain:arid': 1.6,
+        'flux:eco:marsh:tropical': 2.0
+      };
 
-      // The largest component should contain at least 50% of places
-      expect(largestComponentRatio).toBeGreaterThan(0.5);
+      // Check that we have some representation of each ecosystem
+      const ecosystemsPresent = Object.keys(ecosystemStats);
+      expect(ecosystemsPresent.length).toBeGreaterThan(3);
 
-      // Should have reasonable connection density
-      const totalConnections = result.places.reduce((sum, place) =>
-        sum + Object.keys(place.exits).length, 0);
-      const avgConnections = totalConnections / result.places.length;
-      expect(avgConnections).toBeGreaterThan(1.5); // At least 1.5 connections per place on average
+      // Check connectivity levels (allow some tolerance for randomness)
+      for (const [ecosystem, stats] of Object.entries(ecosystemStats)) {
+        const target = targetConnectivity[ecosystem as keyof typeof targetConnectivity];
+        if (target) {
+          console.log(`${ecosystem}: ${stats.avgConnections.toFixed(2)} connections (target: ${target})`);
+          // Allow 30% tolerance for randomness and small world effects
+          expect(stats.avgConnections).toBeGreaterThan(target * 0.7);
+          expect(stats.avgConnections).toBeLessThan(target * 1.5);
+        }
+      }
 
-      // Should have multiple ecosystem types
-      const ecosystems = new Set(result.places.map(p => p.ecology.ecosystem));
-      expect(ecosystems.size).toBeGreaterThan(3);
+      // Overall graph should be connected
+      expect(isGraphConnected(result.places)).toBe(true);
     });
 
-    // getConnectedComponents is imported from integration.ts
+    it('should handle different spatial world sizes', () => {
+      const smallConfig: WorldGenerationConfig = {
+        worldWidth: 3.0,
+        worldHeight: 2.0,
+        placeSize: 100,
+        placeMargin: 200,
+        seed: 999
+      };
 
-    it('should maintain connectivity across multiple generations with same seed', () => {
-      const config = {
-        seed: 123,
-        minPlaces: 20,
-        maxPlaces: 30,
-        worldAspectRatio: 1.618 as const
+      const largeConfig: WorldGenerationConfig = {
+        worldWidth: 20.0,
+        worldHeight: 12.0,
+        placeSize: 100,
+        placeMargin: 200,
+        seed: 999
+      };
+
+      const smallResult = generateWorld(smallConfig);
+      const largeResult = generateWorld(largeConfig);
+
+      console.log(`Small world: ${smallResult.places.length} places`);
+      console.log(`Large world: ${largeResult.places.length} places`);
+
+      // Both should be connected regardless of size
+      expect(isGraphConnected(smallResult.places)).toBe(true);
+      expect(isGraphConnected(largeResult.places)).toBe(true);
+
+      // Large world should have more places than small world
+      expect(largeResult.places.length).toBeGreaterThan(smallResult.places.length);
+
+      // Should have reasonable spatial constraints
+      const smallMetrics = calculateSpatialMetrics(smallConfig);
+      const largeMetrics = calculateSpatialMetrics(largeConfig);
+
+      // Places should be positioned within world bounds
+      smallResult.vertices.forEach(vertex => {
+        expect(vertex.x).toBeLessThanOrEqual(smallMetrics.worldWidthMeters);
+        expect(vertex.y).toBeLessThanOrEqual(smallMetrics.worldHeightMeters);
+      });
+
+      largeResult.vertices.forEach(vertex => {
+        expect(vertex.x).toBeLessThanOrEqual(largeMetrics.worldWidthMeters);
+        expect(vertex.y).toBeLessThanOrEqual(largeMetrics.worldHeightMeters);
+      });
+    });
+
+    it('should maintain deterministic generation with same seed', () => {
+      const config: WorldGenerationConfig = {
+        worldWidth: 8.0,
+        worldHeight: 5.0,
+        placeSize: 100,
+        placeMargin: 200,
+        seed: 456
       };
 
       // Generate the same world twice
@@ -272,39 +387,14 @@ describe('Worldgen Connectivity Preservation', () => {
 
       // Connection counts should be identical (deterministic)
       expect(countTotalConnections(result1.places)).toBe(countTotalConnections(result2.places));
-    });
 
-    it('should handle different world sizes gracefully', () => {
-      const smallConfig = {
-        seed: 999,
-        minPlaces: 5,
-        maxPlaces: 10,
-        worldAspectRatio: 1.618 as const
-      };
-
-      const largeConfig = {
-        seed: 999,
-        minPlaces: 80,
-        maxPlaces: 120,
-        worldAspectRatio: 1.618 as const
-      };
-
-      const smallResult = generateWorld(smallConfig);
-      const largeResult = generateWorld(largeConfig);
-
-      // Both should be connected regardless of size
-      expect(isGraphConnected(smallResult.places)).toBe(true);
-      expect(isGraphConnected(largeResult.places)).toBe(true);
-
-      // Should respect size constraints (soft limits)
-      expect(smallResult.places.length).toBeGreaterThanOrEqual(smallConfig.minPlaces);
-      // maxPlaces is soft, so check it's reasonable but not strict
-      expect(smallResult.places.length).toBeLessThan(smallConfig.maxPlaces * 10); // Very generous bound
-      expect(largeResult.places.length).toBeGreaterThanOrEqual(largeConfig.minPlaces);
-      expect(largeResult.places.length).toBeLessThan(largeConfig.maxPlaces * 2); // Within 2x of soft limit
-
-      // Large world should generally have more places than small world
-      expect(largeResult.places.length).toBeGreaterThan(smallResult.places.length);
+      // Vertices should be positioned identically
+      expect(result1.vertices.length).toBe(result2.vertices.length);
+      for (let i = 0; i < result1.vertices.length; i++) {
+        expect(result1.vertices[i].x).toBe(result2.vertices[i].x);
+        expect(result1.vertices[i].y).toBe(result2.vertices[i].y);
+        expect(result1.vertices[i].ecosystem).toBe(result2.vertices[i].ecosystem);
+      }
     });
   });
 
@@ -390,66 +480,22 @@ describe('Worldgen Connectivity Preservation', () => {
       expect(countTotalConnections(places)).toBe(0);
     });
 
-    it('should handle places with no exits', () => {
-      const places = [
-        createTestPlaceWithEcosystem('place1', 'Forest A', EcosystemName.FOREST_TEMPERATE),
-        createTestPlaceWithEcosystem('place2', 'Forest B', EcosystemName.FOREST_TEMPERATE)
-      ];
-
-      // No connections between places
-      expect(isGraphConnected(places)).toBe(false);
-      expect(countTotalConnections(places)).toBe(0);
-    });
-  });
-
-  describe('Ecosystem Distribution', () => {
-    it('should distribute places across all ecosystem types', () => {
-      const config = {
-        seed: 42,
-        minPlaces: 50,
-        maxPlaces: 100,
-        worldAspectRatio: 1.618 as const
+    it('should handle minimal spatial world', () => {
+      const config: WorldGenerationConfig = {
+        worldWidth: 1.0,   // 1km x 1km minimal world
+        worldHeight: 1.0,
+        placeSize: 100,
+        placeMargin: 200,
+        seed: 789
       };
 
       const result = generateWorld(config);
+      const metrics = calculateSpatialMetrics(config);
 
-      // Count places by ecosystem
-      const ecosystemCounts = result.places.reduce((counts, place) => {
-        const ecosystem = place.ecology.ecosystem;
-        counts[ecosystem] = (counts[ecosystem] || 0) + 1;
-        return counts;
-      }, {} as Record<string, number>);
+      console.log(`Minimal world: ${result.places.length} places (capacity: ${metrics.totalPlacesCapacity})`);
 
-      // Should have multiple ecosystem types
-      expect(Object.keys(ecosystemCounts).length).toBeGreaterThan(1);
-
-      // Each ecosystem should have at least one place
-      Object.values(ecosystemCounts).forEach(count => {
-        expect(count).toBeGreaterThan(0);
-      });
-    });
-
-    it('should maintain ecosystem consistency within generated places', () => {
-      const config = {
-        seed: 777,
-        minPlaces: 30,
-        maxPlaces: 40,
-        worldAspectRatio: 1.618 as const
-      };
-
-      const result = generateWorld(config);
-
-      // All places should have valid ecosystem data
-      result.places.forEach((place, index) => {
-        expect(place.ecology).toBeDefined();
-        expect(place.ecology.ecosystem).toBeDefined();
-        expect(place.ecology.temperature).toHaveLength(2);
-        expect(place.ecology.pressure).toHaveLength(2);
-        expect(place.ecology.humidity).toHaveLength(2);
-        expect(place.weather).toBeDefined();
-        expect(place.weather.temperature).toBeGreaterThan(-50);
-        expect(place.weather.temperature).toBeLessThan(60);
-      });
+      expect(result.places.length).toBeGreaterThan(0);
+      expect(isGraphConnected(result.places)).toBe(true);
     });
   });
 });

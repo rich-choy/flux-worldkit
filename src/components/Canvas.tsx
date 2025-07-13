@@ -1,10 +1,8 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import type { WorldGenerationResult } from '~/worldgen/types'
 
 interface CanvasProps {
   world: WorldGenerationResult | null
-  width: number
-  height: number
   zoom: number
   panX: number
   panY: number
@@ -20,32 +18,78 @@ const ECOSYSTEM_COLORS = {
   'flux:eco:marsh:tropical': '#8ec07c'       // Light aqua - marsh
 }
 
-// Lighter, more vibrant colors for nodes
+// Ecosystem-specific node colors - fully saturated
 const NODE_COLORS = {
-  'flux:eco:steppe:arid': '#fabd2f',        // Bright yellow - vibrant steppe
-  'flux:eco:grassland:temperate': '#b8bb26', // Lime green - vibrant grassland
-  'flux:eco:forest:temperate': '#8ec07c',    // Light aqua - vibrant forest
-  'flux:eco:mountain:arid': '#bdae93',        // Light gray - vibrant mountain
-  'flux:eco:jungle:tropical': '#b8bb26',     // Bright green - vibrant jungle
-  'flux:eco:marsh:tropical': '#83a598'       // Blue - vibrant marsh
+  'flux:eco:steppe:arid': '#ff0000',         // Fully saturated red
+  'flux:eco:grassland:temperate': '#ffff00', // Fully saturated yellow
+  'flux:eco:forest:temperate': '#00ff00',    // Fully saturated green
+  'flux:eco:mountain:arid': '#ff0000',       // Fully saturated red (same as steppe)
+  'flux:eco:jungle:tropical': '#00ff00',     // Fully saturated green (same as forest)
+  'flux:eco:marsh:tropical': '#8b4513'       // Brownish green (saddle brown)
 }
 
-export const Canvas: React.FC<CanvasProps> = ({ world, width, height, zoom, panX, panY }) => {
+export const Canvas: React.FC<CanvasProps> = ({ world, zoom, panX, panY }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
+  const animationRef = useRef<number>()
+  const [animationTime, setAnimationTime] = useState(0)
+
+  // Handle container resizing
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+
+    const updateDimensions = () => {
+      const rect = container.getBoundingClientRect()
+      setDimensions({
+        width: rect.width,
+        height: rect.height
+      })
+    }
+
+    // Initial size
+    updateDimensions()
+
+    // Set up ResizeObserver to watch for container size changes
+    const resizeObserver = new ResizeObserver(updateDimensions)
+    resizeObserver.observe(container)
+
+    // Fallback: also listen to window resize
+    window.addEventListener('resize', updateDimensions)
+
+    return () => {
+      resizeObserver.disconnect()
+      window.removeEventListener('resize', updateDimensions)
+    }
+  }, [])
+
+  // Animation loop for pulsing bridge nodes
+  useEffect(() => {
+    const animate = (timestamp: number) => {
+      setAnimationTime(timestamp)
+      animationRef.current = requestAnimationFrame(animate)
+    }
+
+    animationRef.current = requestAnimationFrame(animate)
+
+    return () => {
+      if (animationRef.current) {
+        cancelAnimationFrame(animationRef.current)
+      }
+    }
+  }, [])
 
   useEffect(() => {
     const canvas = canvasRef.current
-    if (!canvas) return
+    if (!canvas || dimensions.width === 0 || dimensions.height === 0) return
 
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
     // Clear canvas
     ctx.fillStyle = '#1d2021' // Gruvbox hard background
-    ctx.fillRect(0, 0, width, height)
-
-    // Draw ecosystem bands
-    drawEcosystemBands(ctx, width, height)
+    ctx.fillRect(0, 0, dimensions.width, dimensions.height)
 
     // Debug logging
     if (world) {
@@ -54,77 +98,96 @@ export const Canvas: React.FC<CanvasProps> = ({ world, width, height, zoom, panX
         vertices: world.vertices?.length || 0,
         hasVertices: !!world.vertices,
         firstVertex: world.vertices?.[0],
-        firstPlace: world.places?.[0]
+        firstPlace: world.places?.[0],
+        canvasDimensions: dimensions
       })
     }
 
     // Draw world if available
     if (world && world.vertices?.length > 0) {
-      drawWorld(ctx, world, width, height, zoom, panX, panY)
+      drawWorld(ctx, world, dimensions.width, dimensions.height, zoom, panX, panY, animationTime)
     } else if (world) {
       console.log('Canvas: World exists but no vertices array or empty vertices')
     }
-  }, [world, width, height, zoom, panX, panY])
+  }, [world, dimensions.width, dimensions.height, zoom, panX, panY, animationTime])
 
   return (
+    <div
+      ref={containerRef}
+      className="w-full h-full"
+      style={{ minWidth: '100%', minHeight: '100%' }}
+    >
     <canvas
       ref={canvasRef}
-      width={width}
-      height={height}
-      className="block"
-    />
+        width={dimensions.width}
+        height={dimensions.height}
+        className="block w-full h-full"
+        style={{ width: '100%', height: '100%' }}
+      />
+    </div>
   )
 }
 
-const drawEcosystemBands = (ctx: CanvasRenderingContext2D, width: number, height: number) => {
-  const bandWidth = width / 5 // 5 ecosystem bands
-  const ecosystems = [
-    'flux:eco:steppe:arid',
-    'flux:eco:grassland:temperate',
-    'flux:eco:forest:temperate',
-    'flux:eco:mountain:arid',
-    'flux:eco:jungle:tropical'
-  ]
+const drawEcosystemBands = (ctx: CanvasRenderingContext2D, world: WorldGenerationResult, transform: (x: number, y: number) => { x: number; y: number }) => {
+  // Find the topmost vertex position to position labels where nodes actually appear
+  const topMostVertexY = Math.min(...world.vertices.map(v => v.y))
+  const labelWorldY = topMostVertexY - 500 // Position labels 500 meters above the topmost nodes
 
-  ecosystems.forEach((ecosystem, index) => {
-    const x = index * bandWidth
+  // Use actual ecosystem boundaries from world generation
+  world.ecosystemBoundaries.forEach((boundary) => {
+    // Transform world coordinates to canvas coordinates
+    const topLeft = transform(boundary.startX, boundary.startY)
+    const bottomRight = transform(boundary.endX, boundary.endY)
+
+    const canvasX = topLeft.x
+    const canvasY = topLeft.y
+    const canvasWidth = bottomRight.x - topLeft.x
+    const canvasHeight = bottomRight.y - topLeft.y
 
     // Draw band background with low opacity
-    ctx.fillStyle = ECOSYSTEM_COLORS[ecosystem as keyof typeof ECOSYSTEM_COLORS] + '20' // 20 = ~12% opacity
-    ctx.fillRect(x, 0, bandWidth, height)
+    ctx.fillStyle = ECOSYSTEM_COLORS[boundary.ecosystem as keyof typeof ECOSYSTEM_COLORS] + '20' // 20 = ~12% opacity
+    ctx.fillRect(canvasX, canvasY, canvasWidth, canvasHeight)
 
     // Draw band border
-    ctx.strokeStyle = ECOSYSTEM_COLORS[ecosystem as keyof typeof ECOSYSTEM_COLORS] + '40' // 40 = ~25% opacity
+    ctx.strokeStyle = ECOSYSTEM_COLORS[boundary.ecosystem as keyof typeof ECOSYSTEM_COLORS] + '40' // 40 = ~25% opacity
     ctx.lineWidth = 1
     ctx.beginPath()
-    ctx.moveTo(x, 0)
-    ctx.lineTo(x, height)
+    ctx.moveTo(canvasX, canvasY)
+    ctx.lineTo(canvasX, canvasY + canvasHeight)
     ctx.stroke()
 
-    // Draw ecosystem label at the top of the band
+    // Position ecosystem label where graph nodes start to appear
+    const labelPosition = transform(boundary.startX + (boundary.endX - boundary.startX) / 2, labelWorldY)
+    const labelX = labelPosition.x
+    const labelY = labelPosition.y
+
+    // Draw ecosystem label with prominent styling
     ctx.fillStyle = '#ebdbb2' // Gruvbox light text color
-    ctx.font = '12px monospace'
+    ctx.font = 'bold 14px monospace'
     ctx.textAlign = 'center'
-    ctx.textBaseline = 'top'
+    ctx.textBaseline = 'middle'
 
-    const labelX = x + bandWidth / 2
-    const labelY = 8 // 8px from top
-
-    // Add a subtle background for better readability
-    const textMetrics = ctx.measureText(ecosystem)
+    // Create a solid black background for maximum legibility
+    const textMetrics = ctx.measureText(boundary.ecosystem)
     const textWidth = textMetrics.width
-    const textHeight = 12
+    const textHeight = 16 // Slightly larger for bold text
+    const padding = 8
 
-    ctx.fillStyle = '#00000080' // Semi-transparent black background
-    ctx.fillRect(labelX - textWidth / 2 - 4, labelY - 2, textWidth + 8, textHeight + 4)
+    ctx.fillStyle = '#000000' // Solid black background
+    ctx.fillRect(labelX - textWidth / 2 - padding, labelY - textHeight / 2 - padding / 2, textWidth + padding * 2, textHeight + padding)
 
-    // Draw the text
+    // Draw a subtle border around the black background
+    ctx.strokeStyle = '#333333'
+    ctx.lineWidth = 1
+    ctx.strokeRect(labelX - textWidth / 2 - padding, labelY - textHeight / 2 - padding / 2, textWidth + padding * 2, textHeight + padding)
+
+    // Draw the text on top
     ctx.fillStyle = '#ebdbb2' // Gruvbox light text color
-    ctx.fillText(ecosystem, labelX, labelY)
+    ctx.fillText(boundary.ecosystem, labelX, labelY)
   })
 }
 
-const drawWorld = (ctx: CanvasRenderingContext2D, world: WorldGenerationResult, canvasWidth: number, canvasHeight: number, zoom: number, panX: number, panY: number) => {
+const drawWorld = (ctx: CanvasRenderingContext2D, world: WorldGenerationResult, canvasWidth: number, canvasHeight: number, zoom: number, panX: number, panY: number, animationTime: number) => {
   if (!world.vertices.length) return
 
   // Find world bounds from the vertices
@@ -158,11 +221,14 @@ const drawWorld = (ctx: CanvasRenderingContext2D, world: WorldGenerationResult, 
     canvasCoords: testCoords
   })
 
-  // Draw connections first (so they appear behind places)
-  drawConnections(ctx, world, transform)
+  // Draw ecosystem bands first (background)
+  drawEcosystemBands(ctx, world, transform)
 
-  // Draw places using vertex coordinates
-  drawPlaces(ctx, world, transform)
+  // Draw connections second (so they appear behind places)
+  drawConnections(ctx, world, transform, animationTime)
+
+  // Draw places last (so they appear on top)
+  drawPlaces(ctx, world, transform, animationTime)
 
   console.log('Canvas: Finished drawing world')
 }
@@ -186,36 +252,96 @@ const getWorldBounds = (vertices: any[]) => {
   }
 }
 
+// Helper function to blend two colors
+const blendColors = (color1: string, color2: string): string => {
+  const hex1 = color1.replace('#', '')
+  const hex2 = color2.replace('#', '')
+
+  const r1 = parseInt(hex1.substring(0, 2), 16)
+  const g1 = parseInt(hex1.substring(2, 4), 16)
+  const b1 = parseInt(hex1.substring(4, 6), 16)
+
+  const r2 = parseInt(hex2.substring(0, 2), 16)
+  const g2 = parseInt(hex2.substring(2, 4), 16)
+  const b2 = parseInt(hex2.substring(4, 6), 16)
+
+  const r = Math.round((r1 + r2) / 2)
+  const g = Math.round((g1 + g2) / 2)
+  const b = Math.round((b1 + b2) / 2)
+
+  return `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`
+}
+
+// Helper function to mute a color (make it less vibrant)
+const muteColor = (color: string): string => {
+  const hex = color.replace('#', '')
+  const r = parseInt(hex.substring(0, 2), 16)
+  const g = parseInt(hex.substring(2, 4), 16)
+  const b = parseInt(hex.substring(4, 6), 16)
+
+  // Reduce saturation by blending with gray
+  const gray = 128
+  const factor = 0.6 // Muting factor
+
+  const mutedR = Math.round(r * (1 - factor) + gray * factor)
+  const mutedG = Math.round(g * (1 - factor) + gray * factor)
+  const mutedB = Math.round(b * (1 - factor) + gray * factor)
+
+  return `#${mutedR.toString(16).padStart(2, '0')}${mutedG.toString(16).padStart(2, '0')}${mutedB.toString(16).padStart(2, '0')}`
+}
+
+// Helper function to map ecosystem to ecosystem band (marsh is part of jungle band)
+const getEcosystemBand = (ecosystem: string): string => {
+  if (ecosystem.includes('steppe')) return 'steppe'
+  if (ecosystem.includes('grassland')) return 'grassland'
+  if (ecosystem.includes('forest')) return 'forest'
+  if (ecosystem.includes('mountain')) return 'mountain'
+  if (ecosystem.includes('jungle') || ecosystem.includes('marsh')) return 'jungle'
+  return 'unknown'
+}
+
 const drawConnections = (
   ctx: CanvasRenderingContext2D,
   world: WorldGenerationResult,
-  transform: (x: number, y: number) => { x: number; y: number }
+  transform: (x: number, y: number) => { x: number; y: number },
+  animationTime: number
 ) => {
-  ctx.strokeStyle = '#a89984' // Gruvbox gray instead of bright white
   ctx.lineWidth = 1 // Thinner lines
-  ctx.globalAlpha = 0.25 // Much more subtle opacity
+  ctx.globalAlpha = 0.62 // 62% opacity as specified
 
-  // Create a map of place IDs to vertex coordinates for quick lookup
-  const vertexMap = new Map<string, { x: number; y: number }>()
+  // Create a map of place IDs to vertex coordinates and ecosystems for quick lookup
+  const vertexMap = new Map<string, { x: number; y: number; ecosystem: string }>()
   world.vertices.forEach(vertex => {
-    const placeId = `flux:place:${vertex.id}`
-    vertexMap.set(placeId, { x: vertex.x, y: vertex.y })
+    // Use the placeId directly from the vertex
+    vertexMap.set(vertex.placeId, { x: vertex.x, y: vertex.y, ecosystem: vertex.ecosystem })
   })
 
   console.log('Canvas: Drawing connections:', {
     totalPlaces: world.places.length,
-    vertexMapSize: vertexMap.size
+    totalVertices: world.vertices.length,
+    vertexMapSize: vertexMap.size,
+    samplePlaceId: world.places[0]?.id,
+    sampleVertexPlaceId: world.vertices[0]?.placeId,
+    samplePlaceExits: world.places[0]?.exits,
+    totalConnections: world.connections?.total || 0
   })
 
   let connectionCount = 0
   let placesWithExits = 0
+  let failedLookups = 0
 
   // Draw connections between places based on exits
-  world.places.forEach((place, index) => {
+  world.places.forEach((place) => {
     if (place.exits && Object.keys(place.exits).length > 0) {
       placesWithExits++
       const fromVertex = vertexMap.get(place.id)
-      if (!fromVertex) return
+      if (!fromVertex) {
+        failedLookups++
+        if (failedLookups <= 3) {
+          console.log(`Canvas: Failed to find vertex for place ${place.id}`)
+        }
+        return
+      }
 
       const fromCoords = transform(fromVertex.x, fromVertex.y)
 
@@ -224,10 +350,43 @@ const drawConnections = (
         if (toVertex) {
           const toCoords = transform(toVertex.x, toVertex.y)
 
-          ctx.beginPath()
-          ctx.moveTo(fromCoords.x, fromCoords.y)
-          ctx.lineTo(toCoords.x, toCoords.y)
-          ctx.stroke()
+          // Get colors for both ecosystems
+          const fromColor = NODE_COLORS[fromVertex.ecosystem as keyof typeof NODE_COLORS] || '#ebdbb2'
+          const toColor = NODE_COLORS[toVertex.ecosystem as keyof typeof NODE_COLORS] || '#ebdbb2'
+
+          // Create composite color for the edge
+          let edgeColor: string
+          if (fromVertex.ecosystem === toVertex.ecosystem) {
+            // Same ecosystem - use muted version of the ecosystem color
+            edgeColor = muteColor(fromColor)
+          } else {
+            // Different ecosystems - blend the colors and mute
+            const blendedColor = blendColors(fromColor, toColor)
+            edgeColor = muteColor(blendedColor)
+          }
+
+          // Check if this is an inter-ecosystem-BAND connection (not just inter-ecosystem)
+          const fromBand = getEcosystemBand(fromVertex.ecosystem)
+          const toBand = getEcosystemBand(toVertex.ecosystem)
+          const isInterBandConnection = fromBand !== toBand
+
+          // Apply pulsing animation and thicker line to inter-ecosystem-BAND connections only
+          if (isInterBandConnection) {
+            const pulseFactor = Math.sin(animationTime * 0.005) * 0.1 + 0.9; // 0.9 to 1.0
+            ctx.strokeStyle = edgeColor;
+            ctx.lineWidth = 2.5 * pulseFactor; // Much thicker line for inter-band connections
+            ctx.beginPath();
+            ctx.moveTo(fromCoords.x, fromCoords.y);
+            ctx.lineTo(toCoords.x, toCoords.y);
+            ctx.stroke();
+          } else {
+            ctx.strokeStyle = edgeColor;
+            ctx.lineWidth = 1; // Normal line width for same band
+            ctx.beginPath();
+            ctx.moveTo(fromCoords.x, fromCoords.y);
+            ctx.lineTo(toCoords.x, toCoords.y);
+            ctx.stroke();
+          }
 
           connectionCount++
 
@@ -236,9 +395,22 @@ const drawConnections = (
             console.log(`Canvas: Drew connection ${connectionCount}:`, {
               from: place.id,
               to: exit.to,
+              fromEcosystem: fromVertex.ecosystem,
+              toEcosystem: toVertex.ecosystem,
+              fromBand,
+              toBand,
+              isInterBand: isInterBandConnection,
+              fromColor,
+              toColor,
+              edgeColor,
               fromCoords,
               toCoords
             })
+          }
+        } else {
+          failedLookups++
+          if (failedLookups <= 3) {
+            console.log(`Canvas: Failed to find vertex for exit target ${exit.to}`)
           }
         }
       })
@@ -248,8 +420,7 @@ const drawConnections = (
   console.log('Canvas: Connection summary:', {
     placesWithExits,
     totalConnections: connectionCount,
-    connectionStyle: ctx.strokeStyle,
-    lineWidth: ctx.lineWidth,
+    failedLookups,
     alpha: ctx.globalAlpha
   })
 
@@ -259,13 +430,14 @@ const drawConnections = (
 const drawPlaces = (
   ctx: CanvasRenderingContext2D,
   world: WorldGenerationResult,
-  transform: (x: number, y: number) => { x: number; y: number }
+  transform: (x: number, y: number) => { x: number; y: number },
+  animationTime: number
 ) => {
   // Create a map of place IDs to vertices for coordinates
   const vertexMap = new Map<string, any>()
   world.vertices.forEach(vertex => {
-    const placeId = `flux:place:${vertex.id}`
-    vertexMap.set(placeId, vertex)
+    // Use the placeId directly from the vertex
+    vertexMap.set(vertex.placeId, vertex)
   })
 
   console.log('Canvas: Drawing places:', {
@@ -279,6 +451,7 @@ const drawPlaces = (
   })
 
   let drawnCount = 0
+  let bridgeNodeCount = 0
 
   world.places.forEach((place, index) => {
     const vertex = vertexMap.get(place.id)
@@ -291,33 +464,76 @@ const drawPlaces = (
 
     const coords = transform(vertex.x, vertex.y)
 
-    // Get ecosystem color for the node
-    const nodeColor = NODE_COLORS[place.ecology.ecosystem as keyof typeof NODE_COLORS] || '#ebdbb2'
+    // Check if this is an inter-ecosystem-BAND bridge node (not just inter-ecosystem)
+    const placeEcosystem = vertex.ecosystem
+    const placeBand = getEcosystemBand(placeEcosystem)
+    let isBridgeNode = false
+
+    if (place.exits && Object.keys(place.exits).length > 0) {
+      for (const exit of Object.values(place.exits)) {
+        const targetVertex = vertexMap.get((exit as any).to)
+        if (targetVertex) {
+          const targetBand = getEcosystemBand(targetVertex.ecosystem)
+          if (targetBand !== placeBand) {
+            isBridgeNode = true
+            break
+          }
+        }
+      }
+    }
+
+    if (isBridgeNode) {
+      bridgeNodeCount++
+    }
+
+    // Get ecosystem color for the node from the vertex data
+    const nodeColor = NODE_COLORS[vertex.ecosystem as keyof typeof NODE_COLORS] || '#ebdbb2'
+
+    // Use larger radius and enhanced styling for bridge nodes with pulsing animation
+    let radius = isBridgeNode ? 6 : 3
+    const borderWidth = isBridgeNode ? 2 : 1
+
+    // Apply pulsing animation to bridge nodes
+    if (isBridgeNode) {
+      const pulseFactor = Math.sin(animationTime * 0.003) * 0.3 + 1.0 // Oscillates between 0.7 and 1.3
+      radius = radius * pulseFactor
+    }
 
     // Draw place node
     ctx.fillStyle = nodeColor
     ctx.beginPath()
-    ctx.arc(coords.x, coords.y, 3, 0, 2 * Math.PI)
+    ctx.arc(coords.x, coords.y, radius, 0, 2 * Math.PI)
     ctx.fill()
 
-    // Draw border
-    ctx.strokeStyle = '#fbf1c7' // Gruvbox foreground 0
-    ctx.lineWidth = 1
+    // Draw border with enhanced styling for bridge nodes
+    ctx.strokeStyle = isBridgeNode ? '#fe8019' : '#fbf1c7' // Orange for bridges, normal color for others
+    ctx.lineWidth = borderWidth
     ctx.stroke()
+
+    // Add an extra inner ring for bridge nodes to make them more prominent
+    if (isBridgeNode) {
+      ctx.strokeStyle = '#fbf1c7'
+      ctx.lineWidth = 1
+      ctx.beginPath()
+      ctx.arc(coords.x, coords.y, radius - 1.5, 0, 2 * Math.PI)
+      ctx.stroke()
+    }
 
     drawnCount++
 
-    // Log first few drawn places
-    if (index < 3) {
-      console.log(`Canvas: Drew place ${index}:`, {
+    // Log first few drawn places and all bridge nodes
+    if (index < 3 || (isBridgeNode && bridgeNodeCount <= 5)) {
+      console.log(`Canvas: Drew ${isBridgeNode ? 'BRIDGE' : 'normal'} place ${index}:`, {
         placeId: place.id,
-        ecosystem: place.ecology.ecosystem,
+        ecosystem: vertex.ecosystem,
         worldCoords: { x: vertex.x, y: vertex.y },
         canvasCoords: coords,
-        color: nodeColor
+        color: nodeColor,
+        radius,
+        isBridge: isBridgeNode
       })
     }
   })
 
-  console.log('Canvas: Total places drawn:', drawnCount)
+  console.log('Canvas: Total places drawn:', drawnCount, `(${bridgeNodeCount} bridge nodes)`)
 }

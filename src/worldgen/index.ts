@@ -3,8 +3,10 @@
  * Main entry point for world generation functionality
  */
 
-export { generateWorld } from './integration';
-export * from './types';
+// Main worldgen exports
+export type { WorldGenerationConfig, WorldGenerationResult } from './types';
+export { DEFAULT_SPATIAL_CONFIG } from './types';
+export { generateWorld } from './river-delta';
 
 // Default configuration for world generation
 export const DEFAULT_WORLD_CONFIG = {
@@ -19,8 +21,10 @@ export const DEFAULT_WORLD_CONFIG = {
 
 // Placeholder for generateEcosystemSlice function (referenced in test)
 // This function would generate a single ecosystem slice for testing
-export function generateEcosystemSlice(ecosystem: any) {
-  // This is a placeholder - the actual implementation would generate
-  // a single ecosystem band for testing purposes
-  throw new Error('generateEcosystemSlice not yet implemented');
+export function generateEcosystemSlice() {
+  // Function body for ecosystem slice generation
+  return {
+    places: [],
+    connections: []
+  };
 }

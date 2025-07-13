@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react'
-import type { WorldGenerationResult } from '@flux'
+import type { WorldGenerationResult } from '~/worldgen/types'
 import type { ViewMode } from '~/App'
 import { Canvas } from './Canvas'
 import { ZoomPanControls } from './ZoomPanControls'
@@ -12,8 +12,7 @@ interface ViewportProps {
 
 export const Viewport: React.FC<ViewportProps> = ({
   world,
-  viewMode,
-  onViewModeChange
+  viewMode
 }) => {
   return (
     <div className="h-full bg-background">
@@ -34,34 +33,9 @@ interface GraphViewProps {
 }
 
 const GraphView: React.FC<GraphViewProps> = ({ world }) => {
-  const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
   const [zoom, setZoom] = useState(1)
   const [panX, setPanX] = useState(0)
   const [panY, setPanY] = useState(0)
-
-  useEffect(() => {
-    const updateDimensions = () => {
-      // Get viewport dimensions minus the menu bars
-      const viewportWidth = window.innerWidth
-      const viewportHeight = window.innerHeight
-
-            // Account for menu bar and button bar heights (approximate)
-      const menuBarHeight = 80 // Top menu bar
-      const buttonBarHeight = 60 // Graph/Analysis buttons
-
-      const availableWidth = viewportWidth
-      const availableHeight = viewportHeight - menuBarHeight - buttonBarHeight
-
-      setDimensions({
-        width: Math.max(availableWidth, 400), // Minimum width
-        height: Math.max(availableHeight, 300) // Minimum height
-      })
-    }
-
-    updateDimensions()
-    window.addEventListener('resize', updateDimensions)
-    return () => window.removeEventListener('resize', updateDimensions)
-  }, [])
 
   // Reset zoom and pan when world changes
   useEffect(() => {
@@ -104,8 +78,6 @@ const GraphView: React.FC<GraphViewProps> = ({ world }) => {
     <div className="h-full w-full flex items-start justify-start relative">
       <Canvas
         world={world}
-        width={dimensions.width}
-        height={dimensions.height}
         zoom={zoom}
         panX={panX}
         panY={panY}
@@ -167,20 +139,24 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({ world }) => {
           </h3>
           <div className="grid grid-cols-2 gap-4 text-sm">
             <div>
-              <span className="text-text-dim">Min Places:</span>
-              <span className="ml-2 text-text">{world.config.minPlaces}</span>
+              <span className="text-text-dim">World Width:</span>
+              <span className="ml-2 text-text">{world.config.worldWidth} km</span>
             </div>
             <div>
-              <span className="text-text-dim">Max Places:</span>
-              <span className="ml-2 text-text">{world.config.maxPlaces || 'N/A'}</span>
+              <span className="text-text-dim">World Height:</span>
+              <span className="ml-2 text-text">{world.config.worldHeight} km</span>
             </div>
             <div>
-              <span className="text-text-dim">Aspect Ratio:</span>
-              <span className="ml-2 text-text">{world.config.worldAspectRatio}</span>
+              <span className="text-text-dim">Place Size:</span>
+              <span className="ml-2 text-text">{world.config.placeSize} m</span>
             </div>
             <div>
-              <span className="text-text-dim">Min Vertices:</span>
-              <span className="ml-2 text-text">{world.config.lichtenberg.minVertices}</span>
+              <span className="text-text-dim">Place Margin:</span>
+              <span className="ml-2 text-text">{world.config.placeMargin} m</span>
+            </div>
+            <div>
+              <span className="text-text-dim">Seed:</span>
+              <span className="ml-2 text-text">{world.config.seed || 'Random'}</span>
             </div>
           </div>
         </div>
@@ -218,7 +194,7 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({ world }) => {
           <div className="space-y-2 text-sm">
             {(() => {
               // Calculate ecosystem distribution
-              const ecosystemCounts = world.places.reduce((acc, place) => {
+              const ecosystemCounts = world.places.reduce((acc: Record<string, number>, place: any) => {
                 const ecosystem = place.ecology.ecosystem
                 acc[ecosystem] = (acc[ecosystem] || 0) + 1
                 return acc
@@ -248,7 +224,7 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({ world }) => {
           <div className="space-y-2 text-sm">
             {(() => {
               // Calculate connections per ecosystem
-              const ecosystemConnections = world.places.reduce((acc, place) => {
+              const ecosystemConnections = world.places.reduce((acc: Record<string, { total: number; places: number }>, place: any) => {
                 const ecosystem = place.ecology.ecosystem
                 const exitCount = Object.keys(place.exits || {}).length
 

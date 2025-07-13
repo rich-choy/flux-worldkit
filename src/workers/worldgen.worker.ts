@@ -7,10 +7,7 @@ console.log('Worker: Imported generateWorld function:', typeof generateWorld)
 
 export interface WorldGenerationMessage {
   type: 'GENERATE_WORLD'
-  payload: {
-    minPlaces: number
-    seed: number
-  }
+  payload: WorldGenerationConfig
 }
 
 export interface WorldGenerationResponse {
@@ -24,22 +21,18 @@ self.addEventListener('message', (event: MessageEvent<WorldGenerationMessage>) =
 
   if (type === 'GENERATE_WORLD') {
     try {
-      // Create world generation config
-      const config: WorldGenerationConfig = {
-        minPlaces: payload.minPlaces,
-        maxPlaces: payload.minPlaces * 2, // Allow up to 2x the min places
-        worldAspectRatio: 1.618, // Golden ratio as specified
-        seed: payload.seed, // Pass the seed for deterministic generation
-        lichtenberg: {
-          minVertices: Math.max(10, Math.floor(payload.minPlaces / 5)), // Ensure reasonable minimum
-          maxChainLength: 15 // Reasonable max chain length
-        }
-      }
+      // Use the config directly from the payload
+      const config: WorldGenerationConfig = payload
 
       // Generate the world
       console.log('Worker: Generating world with config:', config)
       const world = generateWorld(config)
-      console.log('Worker: World generated successfully:', world)
+      console.log('Worker: World generated successfully:', {
+        actualPlaces: world.places?.length || 0,
+        vertices: world.vertices?.length || 0,
+        connections: world.connections?.total || 0,
+        worldSize: `${config.worldWidth}x${config.worldHeight}km`
+      })
 
       // Debug: Check what we're about to send
       console.log('Worker: About to send result:', {
