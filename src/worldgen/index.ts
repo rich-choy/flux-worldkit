@@ -18,13 +18,3 @@ export const DEFAULT_WORLD_CONFIG = {
     maxChainLength: 15
   }
 };
-
-// Placeholder for generateEcosystemSlice function (referenced in test)
-// This function would generate a single ecosystem slice for testing
-export function generateEcosystemSlice() {
-  // Function body for ecosystem slice generation
-  return {
-    places: [],
-    connections: []
-  };
-}

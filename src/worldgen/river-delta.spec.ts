@@ -160,7 +160,7 @@ describe('River Delta World Generation', () => {
 
       // Check that most vertices have connections
       let connectedVertices = 0;
-      adjacencyMap.forEach((neighbors, _vertexId) => {
+      adjacencyMap.forEach((neighbors) => {
         if (neighbors.size > 0) {
           connectedVertices++;
         }
@@ -242,7 +242,7 @@ describe('River Delta World Generation', () => {
       expect(ecosystemCounts.size).toBeGreaterThan(1);
 
       // Each ecosystem should have a reasonable number of vertices
-      ecosystemCounts.forEach((count, _ecosystem) => {
+      ecosystemCounts.forEach((count) => {
         expect(count).toBeGreaterThan(0);
       });
     });
@@ -682,7 +682,7 @@ describe('River Delta World Generation', () => {
       { branchingFactor: 0.5, description: "sparse river-like patterns", expectSingleComponent: false },
       { branchingFactor: 1.0, description: "balanced connectivity", expectSingleComponent: true },
       { branchingFactor: 1.5, description: "dense mesh patterns", expectSingleComponent: true }
-    ])('should generate $description with branching factor $branchingFactor', ({ branchingFactor, description, expectSingleComponent }) => {
+    ])('should generate $description with branching factor $branchingFactor', ({ branchingFactor, expectSingleComponent }) => {
       const config: WorldGenerationConfig = {
         seed: 42,
         worldWidth: 14.5,

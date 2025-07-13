@@ -7,7 +7,6 @@
 import { findGridPath, canFindGridPath, type PathfindingConstraints } from './pure-pathfinding.js';
 import type { WorldVertex, SpatialMetrics } from './types.js';
 import { EcosystemName } from './types.js';
-import type { SeededRandom } from './river-delta.js';
 
 export interface BridgeCreationOptions {
   /** Whether to allow cross-ecosystem bridges */
@@ -116,7 +115,6 @@ export function createBridge(
   to: WorldVertex,
   startVertexId: number,
   metrics: SpatialMetrics,
-  rng: SeededRandom,
   existingVertices: WorldVertex[] = [],
   options: BridgeCreationOptions = {}
 ): BridgeResult {

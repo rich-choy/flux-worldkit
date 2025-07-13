@@ -55,7 +55,7 @@ interface DeltaConfig {
 function generateDenseEcosystemConnectivity(
   ecosystem: EcosystemName,
   vertices: WorldVertex[],
-  metrics: SpatialMetrics,
+  _metrics: SpatialMetrics,
   rng: SeededRandom,
   globalBranchingFactor?: number
 ): DeltaEdge[] {
@@ -68,17 +68,7 @@ function generateDenseEcosystemConnectivity(
   // Get ecosystem-specific parameters
   const deltaConfig = getDeltaConfig(ecosystem, 1.0, globalBranchingFactor);
 
-  // Define the 8 cardinal and diagonal directions
-  const eightDirections = [
-    [1, 0],   // East
-    [1, 1],   // Southeast
-    [1, -1],  // Northeast
-    [0, 1],   // South
-    [0, -1],  // North
-    [-1, 1],  // Southwest
-    [-1, -1], // Northwest
-    [-1, 0]   // West
-  ];
+
 
   // Filter out bridge vertices - they should only be connected via grid-aligned pathfinding
   const regularVertices = vertices.filter(v => !v.id.startsWith('bridge-'));
@@ -636,15 +626,19 @@ function connectDisconnectedSubgraphs(
       }
     }
 
-    if (bestComponentVertex && bestDeltaVertex) {
+        if (bestComponentVertex && bestDeltaVertex) {
+      // For marsh ecosystem, use jungle band for pathfinding since marsh is within jungle
+      const pathfindingEcosystem = ecosystem === EcosystemName.MARSH_TROPICAL
+        ? EcosystemName.JUNGLE_TROPICAL
+        : ecosystem;
+
       // Create a grid-aligned path between the vertices
       const path = createGridAlignedPath(
         bestComponentVertex,
         bestDeltaVertex,
-        ecosystem,
+        pathfindingEcosystem,
         nextVertexId,
-        metrics,
-        rng
+        metrics
       );
 
       // Add new intermediate vertices to our vertex list
@@ -676,8 +670,7 @@ export function findGridAlignedPathDFS(
   end: { gridX: number; gridY: number },
   ecosystem: EcosystemName,
   metrics: SpatialMetrics,
-  occupiedPositions: Set<string>,
-  maxDepth: number = 50
+  occupiedPositions: Set<string>
 ): Array<{ gridX: number; gridY: number }> {
 
   const path: Array<{ gridX: number; gridY: number }> = [];
@@ -716,9 +709,19 @@ export function findGridAlignedPathDFS(
       break; // Can't continue, collision
     }
 
-    // Check ecosystem boundary
+    // Check ecosystem boundary - but allow within the same ecosystem band
     const nextEcosystem = determineEcosystemFromGridX(nextX, metrics);
-    if (nextEcosystem !== ecosystem) {
+
+    // Convert ecosystems to bands (marsh is part of jungle band)
+    const getEcosystemBand = (ecosystem: EcosystemName): string => {
+      if (ecosystem === EcosystemName.MARSH_TROPICAL) return 'jungle';
+      return ecosystem.split(':')[2];
+    };
+
+    const currentBand = getEcosystemBand(ecosystem);
+    const nextBand = getEcosystemBand(nextEcosystem);
+
+    if (currentBand !== nextBand) {
       console.log(`Path stopped at ecosystem boundary: ${ecosystem.split(':')[2]} → ${nextEcosystem.split(':')[2]} at (${nextX},${nextY})`);
       break; // Can't continue, boundary crossing
     }
@@ -758,10 +761,9 @@ export function findGridAlignedPathDFS(
 export function createGridAlignedPath(
   from: WorldVertex,
   to: WorldVertex,
-  ecosystem: EcosystemName,
+  _ecosystem: EcosystemName,
   startVertexId: number,
-  metrics: SpatialMetrics,
-  rng: SeededRandom
+  metrics: SpatialMetrics
 ): {
   intermediateVertices: WorldVertex[];
   connections: Array<{from: string, to: string}>;
@@ -771,7 +773,6 @@ export function createGridAlignedPath(
 
   // Determine ecosystem boundaries for the source vertex's ecosystem
   const sourceEcosystem = from.ecosystem;
-  const sourceEcosystemBoundary = getEcosystemBoundary(sourceEcosystem, metrics);
 
   // If the target vertex is in a different ecosystem band, we can still create connections within the same band
   // (e.g., marsh is part of jungle band, so connections are allowed)
@@ -941,151 +942,7 @@ export function determineEcosystemFromGridX(gridX: number, metrics: SpatialMetri
   return EcosystemName.JUNGLE_TROPICAL;
 }
 
-/**
- * Drop orphaned subgraphs while ensuring west-to-east traversability
- */
-function dropOrphanedSubgraphs(
-  vertices: WorldVertex[],
-  connections: Array<{from: string, to: string}>
-): { vertices: WorldVertex[], connections: Array<{from: string, to: string}> } {
-  if (vertices.length === 0) {
-    return { vertices: [], connections: [] };
-  }
 
-  // Build adjacency map for efficient traversal
-  const adjacencyMap = new Map<string, Set<string>>();
-
-  // Initialize adjacency map with all vertices
-  vertices.forEach(vertex => {
-    adjacencyMap.set(vertex.id, new Set());
-  });
-
-  // Add connections (bidirectional)
-  connections.forEach(connection => {
-    const fromSet = adjacencyMap.get(connection.from);
-    const toSet = adjacencyMap.get(connection.to);
-    if (fromSet && toSet) {
-      fromSet.add(connection.to);
-      toSet.add(connection.from);
-    }
-  });
-
-  // Find all connected components using BFS
-  const visited = new Set<string>();
-  const components: Set<string>[] = [];
-
-  const bfs = (startId: string): Set<string> => {
-    const component = new Set<string>();
-    const queue = [startId];
-
-    while (queue.length > 0) {
-      const currentId = queue.shift()!;
-      if (visited.has(currentId)) continue;
-
-      visited.add(currentId);
-      component.add(currentId);
-
-      const neighbors = adjacencyMap.get(currentId);
-      if (neighbors) {
-        for (const neighborId of neighbors) {
-          if (!visited.has(neighborId)) {
-            queue.push(neighborId);
-          }
-        }
-      }
-    }
-
-    return component;
-  };
-
-  // Find all components
-  vertices.forEach(vertex => {
-    if (!visited.has(vertex.id)) {
-      const component = bfs(vertex.id);
-      if (component.size > 0) {
-        components.push(component);
-      }
-    }
-  });
-
-  console.log(`Found ${components.length} connected components with sizes: [${components.map(c => c.size).join(', ')}]`);
-
-  // Find westernmost and easternmost vertices
-  const westernmost = vertices.reduce((west, vertex) =>
-    vertex.x < west.x ? vertex : west
-  );
-  const easternmost = vertices.reduce((east, vertex) =>
-    vertex.x > east.x ? vertex : east
-  );
-
-  console.log(`Westernmost vertex: ${westernmost.id} at x=${westernmost.x.toFixed(1)}`);
-  console.log(`Easternmost vertex: ${easternmost.id} at x=${easternmost.x.toFixed(1)}`);
-
-  // Calculate world dimensions for traversal analysis
-  const worldWidth = Math.max(...vertices.map(v => v.x)) - Math.min(...vertices.map(v => v.x));
-  const worldMinX = Math.min(...vertices.map(v => v.x));
-  const worldMaxX = Math.max(...vertices.map(v => v.x));
-
-  // Define western and eastern zones (first and last 25% of world width)
-  const westernZoneEnd = worldMinX + worldWidth * 0.25;
-  const easternZoneStart = worldMaxX - worldWidth * 0.25;
-
-  const componentsToKeep: Set<string>[] = [];
-
-  for (const component of components) {
-    const componentVertices = vertices.filter(v => component.has(v.id));
-
-    // Check if this component has vertices in both western and eastern zones
-    const hasWesternVertex = componentVertices.some(v => v.x <= westernZoneEnd);
-    const hasEasternVertex = componentVertices.some(v => v.x >= easternZoneStart);
-
-    // Keep components that:
-    // 1. Span both western and eastern zones (enable traversal), OR
-    // 2. Are large connected infrastructure (10+ vertices), OR
-    // 3. Are medium-sized and connected to the main network (5+ vertices in middle zones)
-    const spansTraversalZones = hasWesternVertex && hasEasternVertex;
-    const isLargeInfrastructure = component.size >= 10;
-    const isMediumInfrastructure = component.size >= 5 && componentVertices.some(v =>
-      v.x > westernZoneEnd && v.x < easternZoneStart
-    );
-
-    if (spansTraversalZones || isLargeInfrastructure || isMediumInfrastructure) {
-      componentsToKeep.push(component);
-    }
-  }
-
-  // Ensure we keep at least the largest component if our heuristic fails
-  if (componentsToKeep.length === 0 && components.length > 0) {
-    const largestComponent = components.reduce((largest, component) =>
-      component.size > largest.size ? component : largest
-    );
-    componentsToKeep.push(largestComponent);
-    console.log(`Fallback: keeping largest component (size ${largestComponent.size})`);
-  } else {
-    console.log(`Keeping ${componentsToKeep.length} components that enable traversal or form significant infrastructure`);
-    console.log(`Component sizes: [${componentsToKeep.map(c => c.size).join(', ')}]`);
-  }
-
-  // Collect all vertex IDs to keep
-  const vertexIdsToKeep = new Set<string>();
-  componentsToKeep.forEach(component => {
-    component.forEach(vertexId => vertexIdsToKeep.add(vertexId));
-  });
-
-  // Filter vertices and connections
-  const keptVertices = vertices.filter(vertex => vertexIdsToKeep.has(vertex.id));
-  const keptConnections = connections.filter(connection =>
-    vertexIdsToKeep.has(connection.from) && vertexIdsToKeep.has(connection.to)
-  );
-
-  const droppedCount = vertices.length - keptVertices.length;
-  console.log(`Dropped ${droppedCount} orphaned vertices, kept ${keptVertices.length} vertices in ${componentsToKeep.length} component(s)`);
-
-  return {
-    vertices: keptVertices,
-    connections: keptConnections
-  };
-}
 
 /**
  * Process a single ecosystem pair to create inter-ecosystem connectivity
@@ -1155,10 +1012,10 @@ function processEcosystemPair(
       };
   }
 
-    // Find the closest node in the ORIGINAL current ecosystem vertices to the next ecosystem's origin
-    // This prevents bridge vertices from being used for inter-ecosystem connections
-    const closestNodeToOrigin = findClosestNodeToOrigin(originalCurrentVertices, nextDeltaOrigin, rng);
-    if (!closestNodeToOrigin) {
+    // Find the easternmost node in the ORIGINAL current ecosystem vertices to the next ecosystem's origin
+    // This ensures bridges start from the proper easternmost column
+    const easternmostNodeToOrigin = findEasternmostNodeToOrigin(originalCurrentVertices, currentEcosystem, metrics);
+    if (!easternmostNodeToOrigin) {
       console.warn(`Warning: Could not find a node in current ecosystem to bridge to next origin. Cannot create bridge.`);
       return {
         intersectionNodes: [],
@@ -1169,17 +1026,16 @@ function processEcosystemPair(
   }
 
         // Use the new createBridge function which allows cross-ecosystem connections
-    console.log(`Creating inter-ecosystem bridge from ${closestNodeToOrigin.id} (${closestNodeToOrigin.ecosystem.split(':')[2]}) to ${nextDeltaOrigin.id} (${nextDeltaOrigin.ecosystem.split(':')[2]})`);
+    console.log(`Creating inter-ecosystem bridge from ${easternmostNodeToOrigin.id} (${easternmostNodeToOrigin.ecosystem.split(':')[2]}) to ${nextDeltaOrigin.id} (${nextDeltaOrigin.ecosystem.split(':')[2]})`);
 
     // Generate a unique vertex ID for any intermediate bridge vertices
-    let bridgeVertexId = Math.floor(Math.random() * 1000000);
+    const bridgeVertexId = Math.floor(Math.random() * 1000000);
 
     const bridgeResult = createBridge(
-      closestNodeToOrigin,
+      easternmostNodeToOrigin,
       nextDeltaOrigin,
       bridgeVertexId,
       metrics,
-      rng,
       [...currentVertices, ...cleanedNextVertices], // Pass existing vertices for collision detection
       { allowCrossEcosystem: true } // Policy explicitly allows cross-ecosystem bridges
     );
@@ -1192,7 +1048,7 @@ function processEcosystemPair(
       bridgeConnections.push(...bridgeResult.connections);
 
       console.log(`✅ Successfully created inter-ecosystem bridge: ${bridgeResult.intermediateVertices.length} intermediate vertices, ${bridgeResult.connections.length} connections`);
-      console.log(`Bridge distance: ${Math.round(nextDeltaOrigin.x - closestNodeToOrigin.x)}m`);
+      console.log(`Bridge distance: ${Math.round(nextDeltaOrigin.x - easternmostNodeToOrigin.x)}m`);
     } else {
       console.log(`❌ Failed to create inter-ecosystem bridge: ${bridgeResult.reason}`);
     }
@@ -1243,79 +1099,7 @@ function createPlacesFromVertices(vertices: WorldVertex[]): Place[] {
   });
 }
 
-/*
-function flattenSpatialDelta(delta: DeltaNode, metrics: SpatialMetrics): { vertices: WorldVertex[], connections: Array<{from: string, to: string}> } {
-  const vertices: WorldVertex[] = [];
-  const connections: Array<{from: string, to: string}> = [];
 
-  function traverse(node: DeltaNode): void {
-    vertices.push({
-      id: node.id,
-      x: node.x,
-      y: node.y,
-      gridX: Math.floor(node.x / metrics.placeSpacing),
-      gridY: Math.floor(node.y / metrics.placeSpacing),
-      ecosystem: node.ecosystem,
-      placeId: `flux:place:${node.ecosystem.split(':')[2]}:${node.id}`
-    });
-
-    for (const child of node.children) {
-      connections.push({
-        from: node.id,
-        to: child.id
-      });
-      traverse(child);
-    }
-  }
-
-  traverse(delta);
-  return { vertices, connections };
-}
-
-function findEasternmostNodes(delta: DeltaNode): DeltaNode[] {
-  const easternNodes: DeltaNode[] = [];
-
-  function traverse(node: DeltaNode): void {
-    if (node.children.length === 0) {
-      easternNodes.push(node);
-    }
-
-    for (const child of node.children) {
-      traverse(child);
-    }
-  }
-
-  traverse(delta);
-  return easternNodes;
-}
-
-function createInterEcosystemBridges(
-  westernNodes: DeltaNode[],
-  easternNodes: DeltaNode[],
-  rng: SeededRandom
-): Array<{from: string, to: string}> {
-  const bridges: Array<{from: string, to: string}> = [];
-
-  if (westernNodes.length === 0 || easternNodes.length === 0) {
-    return bridges;
-  }
-
-  // Create multiple bridges between ecosystems for better connectivity
-  const bridgeCount = Math.min(3, Math.max(1, Math.min(westernNodes.length, easternNodes.length)));
-
-  for (let i = 0; i < bridgeCount; i++) {
-    const westernNode = westernNodes[i % westernNodes.length];
-    const easternNode = easternNodes[i % easternNodes.length];
-
-    bridges.push({
-      from: westernNode.id,
-      to: easternNode.id
-    });
-  }
-
-  return bridges;
-}
-*/
 
 /**
  * Diagnostic function to analyze delta spanning behavior
@@ -1391,7 +1175,7 @@ function analyzeDeltaSpanning(
  */
 function findDeltaOrigin(
   vertices: WorldVertex[],
-  ecosystem: EcosystemName,
+  _ecosystem: EcosystemName,
   metrics: SpatialMetrics
 ): WorldVertex | undefined {
   if (vertices.length === 0) return undefined;
@@ -1421,40 +1205,48 @@ function findDeltaOrigin(
   return origin;
 }
 
+
+
 /**
- * Find the closest node in the current ecosystem to the target origin
+ * Find the closest node in the easternmost column of the ecosystem for bridge creation
+ * This ensures bridges always start from the proper easternmost column
  */
-function findClosestNodeToOrigin(
+function findEasternmostNodeToOrigin(
   currentVertices: WorldVertex[],
-  targetOrigin: WorldVertex,
-  rng: SeededRandom
+  ecosystem: EcosystemName,
+  metrics: SpatialMetrics
 ): WorldVertex | undefined {
   if (currentVertices.length === 0) return undefined;
 
-  // Calculate distances to the target origin
-  const verticesWithDistance = currentVertices.map(vertex => ({
+  // Get ecosystem boundary to find easternmost column
+  const boundary = getEcosystemBoundary(ecosystem, metrics);
+  const easternmostCol = boundary.endCol - 1; // Last column of ecosystem
+
+  // Filter vertices to only those in the easternmost column
+  const easternmostVertices = currentVertices.filter(v => v.gridX === easternmostCol);
+
+  if (easternmostVertices.length === 0) {
+    console.warn(`Warning: No vertices found in easternmost column ${easternmostCol} for ${ecosystem}`);
+    return undefined;
+  }
+
+  // Among easternmost vertices, find the one closest to vertical center (best bridge placement)
+  const verticalCenter = Math.floor(metrics.gridHeight / 2);
+  const verticesWithCenterDistance = easternmostVertices.map(vertex => ({
     vertex,
-    distance: Math.sqrt(
-      Math.pow(vertex.x - targetOrigin.x, 2) +
-      Math.pow(vertex.y - targetOrigin.y, 2)
-    )
+    centerDistance: Math.abs(vertex.gridY - verticalCenter)
   }));
 
-  // Find the minimum distance
-  const minDistance = Math.min(...verticesWithDistance.map(vd => vd.distance));
+  // Find minimum distance from center
+  const minCenterDistance = Math.min(...verticesWithCenterDistance.map(vd => vd.centerDistance));
 
-  // Find all vertices at minimum distance (for tie-breaking)
-  const closestVertices = verticesWithDistance
-    .filter(vd => Math.abs(vd.distance - minDistance) < 1.0) // Allow small tolerance for floating point
+  // Get all vertices with minimum center distance
+  const bestVertices = verticesWithCenterDistance
+    .filter(vd => vd.centerDistance === minCenterDistance)
     .map(vd => vd.vertex);
 
-  // Break ties randomly
-  if (closestVertices.length === 1) {
-    return closestVertices[0];
-  } else {
-    const randomIndex = rng.nextInt(closestVertices.length);
-    return closestVertices[randomIndex];
-  }
+  // Return the first one (deterministic selection)
+  return bestVertices[0];
 }
 
 /**
@@ -1645,7 +1437,7 @@ export function generateWorld(config: WorldGenerationConfig): WorldGenerationRes
       to: edge.to.id
     }));
 
-    // Clean up orphaned subgraphs in the final ecosystem
+    // If the two river deltas don't intersect, force a connection between them
     console.log(`Connecting disconnected subgraphs in final ecosystem...`);
     const connectedFinalConnections = connectDisconnectedSubgraphs(
       finalEcosystemVertices,
@@ -1693,105 +1485,6 @@ export function generateWorld(config: WorldGenerationConfig): WorldGenerationRes
   console.log(`DEBUG: Inter-ecosystem connections:`, Object.fromEntries(connectionsByEcosystem));
   console.log(`DEBUG: Bridge vertices to preserve: ${bridgeVertexIds.size}`);
 
-  // POST-PROCESSING: Assign MARSH_TROPICAL to eastern boundary places
-  console.log('\n=== ASSIGNING MARSH ECOSYSTEM TO EASTERN BOUNDARY ===');
-
-  // Find the Jungle ecosystem boundaries
-  const jungleEcosystem = EcosystemName.JUNGLE_TROPICAL;
-  const jungleVertices = allVertices.filter(v => v.ecosystem === jungleEcosystem);
-
-  if (jungleVertices.length === 0) {
-    console.log('No jungle vertices found for marsh assignment');
-  } else {
-    // Find the easternmost column within the Jungle ecosystem only
-    const jungleMaxGridX = Math.max(...jungleVertices.map(v => v.gridX));
-
-  let marshVerticesCount = 0;
-    const marshVertices: WorldVertex[] = [];
-
-  allVertices.forEach(vertex => {
-      // Assign marsh ecosystem to vertices at the easternmost column of the Jungle ecosystem only
-      // AND do not reassign vertices that are part of inter-ecosystem bridges
-      if (vertex.ecosystem === jungleEcosystem &&
-          vertex.gridX === jungleMaxGridX &&
-          !bridgeVertexIds.has(vertex.id)) {
-      vertex.ecosystem = EcosystemName.MARSH_TROPICAL;
-        marshVertices.push(vertex);
-      marshVerticesCount++;
-    }
-  });
-
-    console.log(`Assigned ${marshVerticesCount} vertices to marsh ecosystem within jungle's eastern boundary`);
-    console.log(`Jungle easternmost column: ${jungleMaxGridX}`);
-    console.log(`Preserved ${bridgeVertexIds.size} bridge vertices from reassignment`);
-
-    // CRITICAL FIX: Process marsh ecosystem for internal connectivity
-    if (marshVertices.length > 0) {
-      console.log(`\n=== PROCESSING MARSH ECOSYSTEM CONNECTIVITY ===`);
-      console.log(`Generating dense mesh connectivity for marsh ecosystem...`);
-
-      // Generate dense mesh connectivity for marsh vertices
-      const marshEcosystemEdges = generateDenseEcosystemConnectivity(
-        EcosystemName.MARSH_TROPICAL,
-        marshVertices,
-        metrics,
-        rng,
-        config.globalBranchingFactor
-      );
-
-      // Convert to connections
-      const marshEcosystemConnections = marshEcosystemEdges.map(edge => ({
-        from: edge.from.id,
-        to: edge.to.id
-      }));
-
-      // Connect disconnected subgraphs in marsh ecosystem
-      console.log(`Connecting disconnected subgraphs in marsh ecosystem...`);
-      const connectedMarshConnections = connectDisconnectedSubgraphs(
-        marshVertices,
-        marshEcosystemConnections,
-        EcosystemName.MARSH_TROPICAL,
-        metrics,
-        rng
-      );
-
-      // Add marsh connections to overall results
-      allConnections.push(...connectedMarshConnections);
-
-      // SPECIAL RULE: Remove vertical connections between marsh vertices
-      console.log(`Removing vertical connections between marsh vertices...`);
-      const originalConnectionCount = allConnections.length;
-
-      // Find vertical connections between marsh vertices to remove
-      const connectionsToRemove = [];
-      for (let i = 0; i < allConnections.length; i++) {
-        const conn = allConnections[i];
-        const fromVertex = allVertices.find(v => v.id === conn.from);
-        const toVertex = allVertices.find(v => v.id === conn.to);
-
-        if (fromVertex && toVertex &&
-            fromVertex.ecosystem === EcosystemName.MARSH_TROPICAL &&
-            toVertex.ecosystem === EcosystemName.MARSH_TROPICAL) {
-
-          // Check if this is a vertical connection (same gridX, different gridY)
-          if (fromVertex.gridX === toVertex.gridX &&
-              Math.abs(fromVertex.gridY - toVertex.gridY) === 1) {
-            connectionsToRemove.push(i);
-          }
-        }
-      }
-
-      // Remove connections in reverse order to maintain indices
-      for (let i = connectionsToRemove.length - 1; i >= 0; i--) {
-        allConnections.splice(connectionsToRemove[i], 1);
-      }
-
-      console.log(`Removed ${connectionsToRemove.length} vertical marsh connections`);
-      console.log(`Marsh ecosystem processed: ${marshVertices.length} vertices, ${marshEcosystemConnections.length} connections`);
-      console.log(`=== MARSH ECOSYSTEM COMPLETE ===\n`);
-    }
-  }
-
   // NO GLOBAL CLEANUP: If connectDisconnectedSubgraphs works correctly per-ecosystem,
   // then there should be zero orphaned subgraphs. Dropping vertices would be a bug.
   console.log('\n=== FINAL VERTEX COUNT ===');
@@ -1803,72 +1496,44 @@ export function generateWorld(config: WorldGenerationConfig): WorldGenerationRes
   // Create places from cleaned vertices
   const places = createPlacesFromVertices(finalVertices);
 
-  // CRITICAL FIX: Filter out any inappropriate cross-ecosystem connections
-  // Only allow connections between:
-  // 1. Vertices in the same ecosystem, OR
-  // 2. Vertices in adjacent ecosystems (legitimate bridge connections) - ONLY ONE PER PAIR
-  const seenCrossEcosystemPairs = new Set<string>();
+  // TRUST THE PROCESS: Use ALL connections without any filtering
+  console.log(`Using all ${finalConnections.length} connections without filtering`);
 
-  const validConnections = finalConnections.filter(conn => {
-    const fromVertex = finalVertices.find(v => v.id === conn.from);
-    const toVertex = finalVertices.find(v => v.id === conn.to);
+  // Add exits based on ALL connections
+  addExitsToPlaces(places, finalConnections, finalVertices);
 
-    if (!fromVertex || !toVertex) {
-      return false; // Skip connections to non-existent vertices
-    }
+  // TRUE POST-PROCESSING: Assign MARSH_TROPICAL to eastern boundary places
+  // This happens AFTER all connectivity is established, so marsh vertices inherit jungle connectivity
+  console.log('\n=== ASSIGNING MARSH ECOSYSTEM TO EASTERN BOUNDARY (TRUE POST-PROCESSING) ===');
 
-    // Use actual vertex ecosystem assignments (not spatial position)
-    const fromEcosystem = fromVertex.ecosystem;
-    const toEcosystem = toVertex.ecosystem;
+  // Find the Jungle ecosystem boundaries
+  const jungleEcosystem = EcosystemName.JUNGLE_TROPICAL;
+  const jungleVertices = finalVertices.filter(v => v.ecosystem === jungleEcosystem);
 
-    // Convert ecosystems to bands (matching test logic: marsh is considered part of jungle band)
-    const getEcosystemBand = (ecosystem: EcosystemName): string => {
-      if (ecosystem.includes('steppe')) return 'steppe';
-      if (ecosystem.includes('grassland')) return 'grassland';
-      if (ecosystem.includes('forest')) return 'forest';
-      if (ecosystem.includes('mountain')) return 'mountain';
-      if (ecosystem.includes('jungle') || ecosystem.includes('marsh')) return 'jungle'; // marsh is within jungle band
-      return 'unknown';
-    };
+  if (jungleVertices.length === 0) {
+    console.log('No jungle vertices found for marsh assignment');
+  } else {
+    // Find the easternmost column within the Jungle ecosystem only
+    const jungleMaxGridX = Math.max(...jungleVertices.map(v => v.gridX));
 
-    const fromBand = getEcosystemBand(fromEcosystem);
-    const toBand = getEcosystemBand(toEcosystem);
+    let marshVerticesCount = 0;
 
-    // Always allow connections within the same ecosystem band
-    if (fromBand === toBand) {
-      return true;
-    }
+    finalVertices.forEach(vertex => {
+      // Assign marsh ecosystem to vertices at the easternmost column of the Jungle ecosystem only
+      // AND do not reassign vertices that are part of inter-ecosystem bridges
+      if (vertex.ecosystem === jungleEcosystem &&
+          vertex.gridX === jungleMaxGridX &&
+          !bridgeVertexIds.has(vertex.id)) {
+        vertex.ecosystem = EcosystemName.MARSH_TROPICAL;
+        marshVerticesCount++;
+      }
+    });
 
-    // Define valid adjacent ecosystem band pairs for bridge connections
-    const validAdjacentPairs = new Set([
-      'steppe-grassland', 'grassland-steppe',
-      'grassland-forest', 'forest-grassland',
-      'forest-mountain', 'mountain-forest',
-      'mountain-jungle', 'jungle-mountain'
-    ]);
-
-    const pairKey = `${fromBand}-${toBand}`;
-    const isValid = validAdjacentPairs.has(pairKey);
-
-    if (!isValid) {
-      return false;
-    }
-
-    // For valid adjacent pairs, only allow the first connection for each pair
-    // Normalize pair key so both directions are treated as the same bridge
-    const normalizedPairKey = [fromBand, toBand].sort().join('-');
-    if (seenCrossEcosystemPairs.has(normalizedPairKey)) {
-      return false;
-    }
-
-    seenCrossEcosystemPairs.add(normalizedPairKey);
-    return true;
-  });
-
-  console.log(`Filtered connections: ${finalConnections.length} → ${validConnections.length} (removed ${finalConnections.length - validConnections.length} invalid cross-ecosystem connections)`);
-
-  // Add exits based on VALID connections only
-  addExitsToPlaces(places, validConnections, finalVertices);
+    console.log(`Assigned ${marshVerticesCount} vertices to marsh ecosystem within jungle's eastern boundary`);
+    console.log(`Jungle easternmost column: ${jungleMaxGridX}`);
+    console.log(`Preserved ${bridgeVertexIds.size} bridge vertices from reassignment`);
+    console.log(`Marsh vertices inherit connectivity from their jungle vertex state`);
+  }
 
   console.log(`Generated ${finalVertices.length} places in ${metrics.worldWidthMeters/1000}km × ${metrics.worldHeightMeters/1000}km world`);
 

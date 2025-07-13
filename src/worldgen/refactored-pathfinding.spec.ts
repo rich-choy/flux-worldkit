@@ -9,7 +9,6 @@ import { findGridPath, manhattanDistance, chebyshevDistance, type GridCoords } f
 import { createBridge, determineEcosystemFromGridX } from './bridge-policy.js';
 import { EcosystemName } from './types.js';
 import type { WorldVertex, SpatialMetrics } from './types.js';
-import { SeededRandom } from './river-delta.js';
 
 describe('Pure Geometric Pathfinding', () => {
 
@@ -114,10 +113,8 @@ describe('Ecosystem Policy Layer', () => {
     placeId: 'flux:place:jungle-1'
   };
 
-  const rng = new SeededRandom(42);
-
   it('should enforce ecosystem policy by default', () => {
-    const result = createBridge(steppeVertex, jungleVertex, 1000, mockMetrics, rng);
+    const result = createBridge(steppeVertex, jungleVertex, 1000, mockMetrics);
 
     expect(result.success).toBe(false);
     expect(result.reason).toContain('Cross-ecosystem bridge from steppe to jungle not allowed by policy');
@@ -129,7 +126,6 @@ describe('Ecosystem Policy Layer', () => {
       jungleVertex,
       1000,
       mockMetrics,
-      rng,
       [],
       { allowCrossEcosystem: true }
     );
@@ -154,7 +150,7 @@ describe('Ecosystem Policy Layer', () => {
       placeId: 'flux:place:steppe-2'
     };
 
-    const result = createBridge(steppeVertex, steppeVertex2, 1000, mockMetrics, rng);
+    const result = createBridge(steppeVertex, steppeVertex2, 1000, mockMetrics);
 
     expect(result.success).toBe(true);
   });
@@ -193,15 +189,12 @@ describe('BUG FIX: Cross-ecosystem bridge creation', () => {
       placeId: 'flux:place:jungle-destination'
     };
 
-    const rng = new SeededRandom(42);
-
     // This should now work with the refactored architecture
     const result = createBridge(
       steppeVertex,
       jungleVertex,
       2000,
       mockMetrics,
-      rng,
       [],
       { allowCrossEcosystem: true }  // Policy explicitly allows it
     );

@@ -32,7 +32,7 @@ export const Canvas: React.FC<CanvasProps> = ({ world, zoom, panX, panY }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [dimensions, setDimensions] = useState({ width: 0, height: 0 })
-  const animationRef = useRef<number>()
+  const animationRef = useRef<number>(0)
   const [animationTime, setAnimationTime] = useState(0)
 
   // Handle container resizing
@@ -465,11 +465,14 @@ const drawPlaces = (
     const coords = transform(vertex.x, vertex.y)
 
     // Check if this is an inter-ecosystem-BAND bridge node (not just inter-ecosystem)
+    // Only highlight REGULAR vertices that connect different ecosystem bands
+    // Exclude intra-ecosystem bridge vertices (those with id starting with 'bridge-')
     const placeEcosystem = vertex.ecosystem
     const placeBand = getEcosystemBand(placeEcosystem)
     let isBridgeNode = false
 
-    if (place.exits && Object.keys(place.exits).length > 0) {
+    // Only consider regular vertices (not intra-ecosystem bridge vertices) for bridge highlighting
+    if (!vertex.id.startsWith('bridge-') && place.exits && Object.keys(place.exits).length > 0) {
       for (const exit of Object.values(place.exits)) {
         const targetVertex = vertexMap.get((exit as any).to)
         if (targetVertex) {
