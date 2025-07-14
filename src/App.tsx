@@ -9,6 +9,7 @@ export type ViewMode = 'graph' | 'analysis'
 
 function App() {
   const [world, setWorld] = useState<WorldGenerationResult | null>(null)
+  const [currentSeed, setCurrentSeed] = useState<number>(0)
   const [viewMode, setViewMode] = useState<ViewMode>('graph')
   const { generateWorld, isGenerating, clearError } = useWorldGeneration()
 
@@ -18,6 +19,7 @@ function App() {
       clearError()
       const generatedWorld = await generateWorld(config)
       setWorld(generatedWorld)
+      setCurrentSeed(config.seed || 0) // Track the seed used for generation
       console.log('World generated successfully:', generatedWorld)
     } catch (error) {
       console.error('World generation failed:', error)
@@ -32,6 +34,8 @@ function App() {
         <Controls
           onGenerateWorld={handleGenerateWorld}
           isGenerating={isGenerating}
+          world={world}
+          currentSeed={currentSeed}
         />
 
         {/* Main Content Area */}

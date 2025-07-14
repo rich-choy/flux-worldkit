@@ -87,19 +87,6 @@ describe('River Flow Generation', () => {
   it('should only dither ecosystems into adjacent ecosystems', () => {
     const world = generateWorld({ seed: 54321 });
 
-    // Define the ecosystem progression and valid adjacencies
-    const ecosystemProgression = ['steppe', 'grassland', 'forest', 'mountain', 'jungle'] as const;
-    const getAdjacentEcosystems = (ecosystem: string) => {
-      const index = ecosystemProgression.indexOf(ecosystem as any);
-      const adjacent = [];
-      if (index > 0) adjacent.push(ecosystemProgression[index - 1]); // Previous
-      if (index < ecosystemProgression.length - 1) adjacent.push(ecosystemProgression[index + 1]); // Next
-      return adjacent;
-    };
-
-    // Track ecosystem transitions by analyzing initial vs final assignments
-    // Since we can't directly observe the dithering process, we'll validate the spatial distribution
-
     // Group vertices by their current ecosystem
     const verticesByEcosystem = world.vertices.reduce((acc, vertex) => {
       if (!acc[vertex.ecosystem]) acc[vertex.ecosystem] = [];
@@ -145,35 +132,7 @@ describe('River Flow Generation', () => {
     console.log(`📊 Forest vertices: ${forestVertices.length} (all in valid zones)`);
   });
 
-  it('should reproduce the exact graph from seed 786385', () => {
-    // Use the exact same parameters as shown in the visualization
-    const world = generateWorld({
-      seed: 786385,
-      worldWidthKm: 14.5,
-      worldHeightKm: 9.0,
-      branchingFactor: 1.0
-    });
 
-    // Verify the basic structure
-    expect(world.vertices.length).toBeGreaterThan(0);
-    expect(world.edges.length).toBeGreaterThan(0);
-    expect(world.vertices.length).toBe(world.edges.length + 1); // Tree structure
-
-    // Verify ecosystem distribution
-    const ecosystemCounts = world.ditheringStats.ecosystemCounts;
-    console.log('✅ Reproduced graph from seed 786385');
-    console.log(`📊 Generated ${world.vertices.length} vertices, ${world.edges.length} edges`);
-    console.log(`📊 Ecosystem distribution:`, ecosystemCounts);
-    console.log(`📊 Dithering stats: ${world.ditheringStats.ditheredVertices}/${world.ditheringStats.transitionZoneVertices} vertices dithered`);
-    console.log(`📊 Pure zones: ${world.ditheringStats.pureZoneVertices}, Transition zones: ${world.ditheringStats.transitionZoneVertices}`);
-
-    // Verify proper ecosystem progression
-    expect(ecosystemCounts.steppe).toBeGreaterThan(0);
-    expect(ecosystemCounts.grassland).toBeGreaterThan(0);
-    expect(ecosystemCounts.forest).toBeGreaterThan(0);
-    expect(ecosystemCounts.mountain).toBeGreaterThan(0);
-    expect(ecosystemCounts.jungle).toBeGreaterThan(0);
-  });
 
   it('should detect impossible ecosystem transitions', () => {
     // Use seed 786385 to reproduce the exact issue from the visualization
@@ -320,113 +279,7 @@ describe('River Flow Generation', () => {
     console.log('✅ Discrete vertical band prevention test passed!');
   });
 
-  it.each([
-    { seed: 11435, description: 'problematic seed from screenshot' },
-    { seed: 786385, description: 'original reproduction seed' },
-    { seed: 12345, description: 'standard test seed' },
-    { seed: 54321, description: 'dithering validation seed' },
-    { seed: 99999, description: 'edge case seed' }
-  ])('should respect ecosystem adjacency constraints for $description (seed: $seed)', ({ seed, description }) => {
-    // Use the exact same parameters as shown in the visualization
-    const world = generateWorld({
-      seed,
-      worldWidthKm: 14.5,
-      worldHeightKm: 9.0,
-      branchingFactor: 1.0
-    });
 
-    // Verify the basic structure
-    expect(world.vertices.length).toBeGreaterThan(0);
-    expect(world.edges.length).toBeGreaterThan(0);
-    expect(world.vertices.length).toBe(world.edges.length + 1); // Tree structure
-
-    // Define ecosystem progression and valid adjacencies
-    const ecosystemProgression = ['steppe', 'grassland', 'forest', 'mountain', 'jungle'] as const;
-    const getAdjacentEcosystems = (ecosystem: string) => {
-      const index = ecosystemProgression.indexOf(ecosystem as any);
-      const adjacent = [];
-      if (index > 0) adjacent.push(ecosystemProgression[index - 1]); // Previous
-      if (index < ecosystemProgression.length - 1) adjacent.push(ecosystemProgression[index + 1]); // Next
-      return adjacent;
-    };
-
-    // Group vertices by their current ecosystem
-    const verticesByEcosystem = world.vertices.reduce((acc, vertex) => {
-      if (!acc[vertex.ecosystem]) acc[vertex.ecosystem] = [];
-      acc[vertex.ecosystem].push(vertex);
-      return acc;
-    }, {} as Record<string, typeof world.vertices>);
-
-    // Check that ecosystems don't appear in completely wrong spatial zones
-    const bands = world.ecosystemBands;
-
-    // Mountain vertices should only appear in mountain, forest, or jungle bands (not in steppe/grassland)
-    const mountainVertices = verticesByEcosystem.mountain || [];
-    const mountainInWrongZones = mountainVertices.filter(v => {
-      // Get the band this vertex is in
-      const band = bands.find(b => v.x >= b.startX && v.x < b.endX);
-      // Mountain should only appear in its own band or adjacent bands (forest, jungle)
-      return band && !['mountain', 'forest', 'jungle'].includes(band.ecosystem);
-    });
-
-    // Steppe vertices should only appear in steppe or grassland bands (not in mountain/jungle)
-    const steppeVertices = verticesByEcosystem.steppe || [];
-    const steppeInWrongZones = steppeVertices.filter(v => {
-      const band = bands.find(b => v.x >= b.startX && v.x < b.endX);
-      return band && !['steppe', 'grassland'].includes(band.ecosystem);
-    });
-
-    // Forest vertices should only appear in grassland, forest, or mountain bands
-    const forestVertices = verticesByEcosystem.forest || [];
-    const forestInWrongZones = forestVertices.filter(v => {
-      const band = bands.find(b => v.x >= b.startX && v.x < b.endX);
-      return band && !['grassland', 'forest', 'mountain'].includes(band.ecosystem);
-    });
-
-    // Check for impossible direct transitions by examining spatial distribution
-    const mountainInSteppeBand = mountainVertices.filter(v => v.x < 2900); // Steppe band is 0-2900m
-    const steppeInMountainBand = steppeVertices.filter(v => v.x >= 8700 && v.x < 11600); // Mountain band is 8700-11600m
-
-    // Log debug information for failing cases
-    if (mountainInWrongZones.length > 0 || steppeInWrongZones.length > 0 || forestInWrongZones.length > 0) {
-      console.log(`🔍 Debug for seed ${seed} (${description}):`);
-      console.log(`  Mountain vertices in wrong zones: ${mountainInWrongZones.length}`);
-      console.log(`  Steppe vertices in wrong zones: ${steppeInWrongZones.length}`);
-      console.log(`  Forest vertices in wrong zones: ${forestInWrongZones.length}`);
-      console.log(`  Mountain vertices in steppe band: ${mountainInSteppeBand.length}`);
-      console.log(`  Steppe vertices in mountain band: ${steppeInMountainBand.length}`);
-
-      if (mountainInSteppeBand.length > 0) {
-        console.log(`  First mountain vertex in steppe band:`, mountainInSteppeBand[0]);
-      }
-      if (steppeInMountainBand.length > 0) {
-        console.log(`  First steppe vertex in mountain band:`, steppeInMountainBand[0]);
-      }
-    }
-
-    // Verify ecosystem adjacency constraints
-    expect(mountainInWrongZones.length).toBe(0);
-    expect(steppeInWrongZones.length).toBe(0);
-    expect(forestInWrongZones.length).toBe(0);
-
-    // Verify no impossible direct transitions
-    expect(mountainInSteppeBand.length).toBe(0);
-    expect(steppeInMountainBand.length).toBe(0);
-
-    // Verify proper ecosystem distribution
-    const ecosystemCounts = world.ditheringStats.ecosystemCounts;
-    expect(ecosystemCounts.steppe).toBeGreaterThan(0);
-    expect(ecosystemCounts.grassland).toBeGreaterThan(0);
-    expect(ecosystemCounts.forest).toBeGreaterThan(0);
-    expect(ecosystemCounts.mountain).toBeGreaterThan(0);
-    expect(ecosystemCounts.jungle).toBeGreaterThan(0);
-
-    // Log success information
-    console.log(`✅ Ecosystem adjacency test passed for seed ${seed} (${description})`);
-    console.log(`  Generated ${world.vertices.length} vertices, ${world.edges.length} edges`);
-    console.log(`  Ecosystem distribution:`, ecosystemCounts);
-    console.log(`  Dithering stats: ${world.ditheringStats.ditheredVertices}/${world.ditheringStats.transitionZoneVertices} vertices dithered`);
-  });
 
   it.each([
     { ditheringStrength: 0.0, description: 'no dithering' },

@@ -1,14 +1,26 @@
 import React, { useState, useMemo } from 'react';
-import type { WorldGenerationConfig } from '../worldgen/types';
+import type { WorldGenerationConfig, WorldGenerationResult } from '../worldgen/types';
+import { exportWorldToJSONL, downloadJSONL } from '../worldgen/export';
 
 interface ControlsProps {
   onGenerateWorld: (config: WorldGenerationConfig) => void
   isGenerating: boolean
+  world: WorldGenerationResult | null
+  currentSeed: number
 }
 
 const getRandomSeed = () => Math.floor(Math.random() * 1000000);
 
-export const Controls: React.FC<ControlsProps> = ({ onGenerateWorld, isGenerating }) => {
+// Simple seeded RNG for deterministic exports (matching generator.ts)
+function createSeededRNG(seed: number): () => number {
+  let state = seed;
+  return () => {
+    state = (state * 1664525 + 1013904223) % 2**32;
+    return state / 2**32;
+  };
+}
+
+export const Controls: React.FC<ControlsProps> = ({ onGenerateWorld, isGenerating, world, currentSeed }) => {
   const [worldWidthKm, setWorldWidthKm] = useState(14.5) // 14.5 km
   const [worldHeightKm, setWorldHeightKm] = useState(9.0) // 9.0 km
   const [branchingFactor, setBranchingFactor] = useState(1.0); // Default branching factor
@@ -46,6 +58,38 @@ export const Controls: React.FC<ControlsProps> = ({ onGenerateWorld, isGeneratin
     const newSeed = getRandomSeed();
     console.log('Randomizing seed to:', newSeed);
     setSeed(newSeed);
+  }
+
+  const handleExportClick = async () => {
+    if (!world) {
+      console.error('No world to export');
+      return;
+    }
+
+    try {
+      // Use the same seed as the world generation for deterministic exports
+      const exportSeed = currentSeed || seed;
+      const rng = createSeededRNG(exportSeed);
+
+      console.log('Exporting world to JSONL with seed:', exportSeed);
+      const jsonlContent = exportWorldToJSONL(world, rng);
+
+      // Compute SHA-256 hash of the content for deterministic filename
+      const encoder = new TextEncoder();
+      const data = encoder.encode(jsonlContent);
+      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+
+      // Use first 16 characters of hash for filename (64-bit collision resistance)
+      const hashPrefix = hashHex.substring(0, 16);
+      const filename = `world-${hashPrefix}.jsonl`;
+
+      downloadJSONL(jsonlContent, filename);
+      console.log(`World exported successfully: ${filename} (content hash: ${hashHex})`);
+    } catch (error) {
+      console.error('Export failed:', error);
+    }
   }
 
   const handleWidthChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -205,6 +249,16 @@ export const Controls: React.FC<ControlsProps> = ({ onGenerateWorld, isGeneratin
             className="btn btn-primary px-3 py-1 text-xs whitespace-nowrap"
           >
             {isGenerating ? 'Generating...' : 'Generate'}
+          </button>
+
+          {/* Export Button */}
+          <button
+            onClick={handleExportClick}
+            disabled={isGenerating || !world}
+            className="btn btn-secondary px-3 py-1 text-xs whitespace-nowrap"
+            title="Export world to JSONL"
+          >
+            Export
           </button>
         </div>
       </div>
