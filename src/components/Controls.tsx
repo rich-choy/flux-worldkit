@@ -25,8 +25,6 @@ export const Controls: React.FC<ControlsProps> = ({ onGenerateWorld, isGeneratin
   const [worldHeightKm, setWorldHeightKm] = useState(9.0) // 9.0 km
   const [branchingFactor, setBranchingFactor] = useState(1.0); // Default branching factor
   const [ditheringStrength, setDitheringStrength] = useState(0.5); // Default dithering strength
-  const [showZoneBoundaries, setShowZoneBoundaries] = useState(false); // Show ecosystem boundaries
-  const [showFlowDirection, setShowFlowDirection] = useState(false); // Show flow direction arrows
   const [seed, setSeed] = useState(getRandomSeed());
 
   // Calculate grid dimensions for display
@@ -46,8 +44,6 @@ export const Controls: React.FC<ControlsProps> = ({ onGenerateWorld, isGeneratin
       worldHeightKm,
       branchingFactor,
       ditheringStrength,
-      showZoneBoundaries,
-      showFlowDirection,
       seed
     }
     console.log('Generate World button clicked! Config:', config)
@@ -74,16 +70,15 @@ export const Controls: React.FC<ControlsProps> = ({ onGenerateWorld, isGeneratin
       console.log('Exporting world to JSONL with seed:', exportSeed);
       const jsonlContent = exportWorldToJSONL(world, rng);
 
-      // Compute SHA-256 hash of the content for deterministic filename
+            // Compute SHA-256 hash of the content for deterministic filename
       const encoder = new TextEncoder();
       const data = encoder.encode(jsonlContent);
       const hashBuffer = await crypto.subtle.digest('SHA-256', data);
       const hashArray = Array.from(new Uint8Array(hashBuffer));
       const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
 
-      // Use first 16 characters of hash for filename (64-bit collision resistance)
-      const hashPrefix = hashHex.substring(0, 16);
-      const filename = `world-${hashPrefix}.jsonl`;
+      // Use full SHA-256 hash for filename (256-bit content integrity)
+      const filename = `world-${hashHex}.jsonl`;
 
       downloadJSONL(jsonlContent, filename);
       console.log(`World exported successfully: ${filename} (content hash: ${hashHex})`);

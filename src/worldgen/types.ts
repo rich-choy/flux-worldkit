@@ -126,6 +126,9 @@ export interface WorldGenerationResult {
     type: 'band' | 'pure' | 'transition';
   }>;
 
+  // Weather data (computed on-demand for export)
+  smoothedWeather?: Map<string, { temperature: number; pressure: number; humidity: number }>;
+
   // Metadata
   config: WorldGenerationConfig;
   generationTime: number;

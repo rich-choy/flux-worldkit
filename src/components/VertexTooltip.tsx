@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react'
-import type { WorldVertex } from '~/worldgen/types'
-import type { Place } from 'flux-game'
+import React, { useState, useEffect, useRef } from 'react';
+import type { WorldVertex } from '~/worldgen/types';
+import type { Place } from 'flux-game';
 
 interface VertexTooltipProps {
   vertex: WorldVertex
@@ -24,7 +24,6 @@ const VertexTooltip: React.FC<VertexTooltipProps> = ({
   place,
   position,
   isVisible,
-  onClose,
   onSave,
   onMouseEnter,
   onMouseLeave
@@ -74,7 +73,7 @@ const VertexTooltip: React.FC<VertexTooltipProps> = ({
   }, [isEditing])
 
   const getEcosystemDisplay = (vertex: WorldVertex): string => {
-    if (vertex.ecosystem === 'flux:eco:marsh:tropical') {
+    if (vertex.ecosystem === 'marsh') {
       return 'Marsh (within Jungle)'
     }
     return vertex.ecosystem.split(':')[2] || 'Unknown'

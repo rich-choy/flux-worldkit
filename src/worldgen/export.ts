@@ -235,33 +235,139 @@ export function getEcologicalProfile(ecosystemType: EcosystemType): EcologicalPr
 }
 
 /**
- * Generate realistic weather for a vertex using seeded randomness
+ * Apply spatial smoothing to weather parameters using neighbor averaging
+ * This creates realistic atmospheric transitions across the world graph
+ */
+function applySpatialWeatherSmoothing(
+  world: WorldGenerationResult,
+  rng: () => number,
+  iterations: number = 3,
+  smoothingFactor: number = 0.3
+): Map<string, { temperature: number; pressure: number; humidity: number }> {
+
+  // Initialize weather map with gradient-based values
+  const weatherMap = new Map<string, { temperature: number; pressure: number; humidity: number }>();
+
+  // First pass: Calculate initial gradient-based weather for all vertices
+  for (const vertex of world.vertices) {
+    const initialWeather = calculateSpatialWeatherGradients(vertex, world);
+    weatherMap.set(vertex.id, { ...initialWeather });
+  }
+
+  // Apply iterative neighbor smoothing
+  for (let iteration = 0; iteration < iterations; iteration++) {
+    const newWeatherMap = new Map(weatherMap); // Copy current state
+
+    for (const vertex of world.vertices) {
+      const neighbors = getNeighborVertices(vertex, world);
+      const currentWeather = weatherMap.get(vertex.id)!;
+
+      if (neighbors.length === 0) {
+        // No neighbors - keep current values
+        continue;
+      }
+
+      // Calculate neighbor averages
+      const neighborAverages = {
+        temperature: 0,
+        pressure: 0,
+        humidity: 0
+      };
+
+      let totalWeight = 0;
+
+      for (const neighbor of neighbors) {
+        const neighborWeather = weatherMap.get(neighbor.id);
+        if (!neighborWeather) continue;
+
+        // Distance-based weighting (closer neighbors have more influence)
+        const distance = Math.sqrt(
+          Math.pow(vertex.x - neighbor.x, 2) + Math.pow(vertex.y - neighbor.y, 2)
+        );
+        const weight = 1.0 / (1.0 + distance * 0.1); // Inverse distance weighting
+
+        neighborAverages.temperature += neighborWeather.temperature * weight;
+        neighborAverages.pressure += neighborWeather.pressure * weight;
+        neighborAverages.humidity += neighborWeather.humidity * weight;
+        totalWeight += weight;
+      }
+
+      if (totalWeight > 0) {
+        // Normalize by total weight
+        neighborAverages.temperature /= totalWeight;
+        neighborAverages.pressure /= totalWeight;
+        neighborAverages.humidity /= totalWeight;
+
+        // Blend current values with neighbor averages
+        const blendedWeather = {
+          temperature: currentWeather.temperature * (1 - smoothingFactor) +
+                      neighborAverages.temperature * smoothingFactor,
+          pressure: currentWeather.pressure * (1 - smoothingFactor) +
+                   neighborAverages.pressure * smoothingFactor,
+          humidity: currentWeather.humidity * (1 - smoothingFactor) +
+                   neighborAverages.humidity * smoothingFactor
+        };
+
+        // Apply ecological constraints to prevent unrealistic values
+        const ecology = getEcologicalProfile(vertex.ecosystem);
+        const constrainedWeather = {
+          temperature: constrainToEcologicalBounds(blendedWeather.temperature, ecology.temperature, rng),
+          pressure: constrainToEcologicalBounds(blendedWeather.pressure, ecology.pressure, rng),
+          humidity: constrainToEcologicalBounds(blendedWeather.humidity, ecology.humidity, rng)
+        };
+
+        newWeatherMap.set(vertex.id, constrainedWeather);
+      }
+    }
+
+    // Update weather map for next iteration
+    weatherMap.clear();
+    for (const [key, value] of newWeatherMap) {
+      weatherMap.set(key, value);
+    }
+  }
+
+  return weatherMap;
+}
+
+/**
+ * Generate realistic weather for a vertex using spatial smoothing
  */
 export function generateRealisticWeather(vertex: WorldVertex, world: WorldGenerationResult, rng: () => number): Weather {
-  // Calculate spatial gradients based on world position
-  const spatialWeather = calculateSpatialWeatherGradients(vertex, world);
+  // Check if we already computed smoothed weather for this world
+  if (!world.smoothedWeather) {
+    console.log('Computing spatially smoothed weather for world...');
+    world.smoothedWeather = applySpatialWeatherSmoothing(world, rng);
+    console.log(`Weather smoothing complete for ${world.vertices.length} vertices`);
+  }
 
-  // Get ecological constraints for this ecosystem
-  const ecology = getEcologicalProfile(vertex.ecosystem);
+  // Get smoothed weather values
+  const smoothedWeather = world.smoothedWeather.get(vertex.id);
 
-  // Blend spatial gradients with ecological constraints
-  const temperature = constrainToEcologicalBounds(spatialWeather.temperature, ecology.temperature, rng);
-  const pressure = constrainToEcologicalBounds(spatialWeather.pressure, ecology.pressure, rng);
-  const humidity = constrainToEcologicalBounds(spatialWeather.humidity, ecology.humidity, rng);
+  // Fallback to gradient-based weather if smoothing failed
+  const baseWeather = smoothedWeather || calculateSpatialWeatherGradients(vertex, world);
+
+  const { temperature, pressure, humidity } = baseWeather;
 
   // Calculate derived weather phenomena
   const precipitation = calculatePrecipitation(temperature, pressure, humidity);
   const ppfd = calculatePPFD(temperature, humidity, precipitation);
   const clouds = calculateCloudCover(humidity, pressure);
 
+  // Generate deterministic timestamp based on vertex position and world seed
+  // This ensures same vertex always gets same timestamp for reproducibility
+  const baseTimestamp = 1699123456789; // Fixed base timestamp
+  const positionSeed = vertex.x * 1000 + vertex.y;
+  const ts = baseTimestamp + (positionSeed * 3600000); // Offset by hours based on position
+
   return {
-    temperature: Math.round(temperature * 10) / 10,
+    temperature: Math.round(temperature * 10) / 10, // Round to 1 decimal
     pressure: Math.round(pressure * 10) / 10,
     humidity: Math.round(humidity * 10) / 10,
-    precipitation: Math.round(precipitation * 100) / 100,
-    ppfd: Math.round(ppfd * 10) / 10,
-    clouds: Math.round(clouds * 10) / 10,
-    ts: Date.now()
+    precipitation: Math.round(precipitation * 100) / 100, // Round to 2 decimals
+    ppfd: Math.round(ppfd),
+    clouds: Math.round(clouds),
+    ts
   };
 }
 

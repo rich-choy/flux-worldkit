@@ -5,15 +5,15 @@
  */
 
 import type {
-    WorldGenerationConfig,
-    WorldGenerationResult,
-    SpatialMetrics,
-    EcosystemBand,
-    WorldVertex,
-    RiverEdge,
-    EcosystemType,
-    DitheringStats,
-    ConnectivityStats
+  WorldGenerationConfig,
+  WorldGenerationResult,
+  SpatialMetrics,
+  EcosystemBand,
+  WorldVertex,
+  RiverEdge,
+  EcosystemType,
+  DitheringStats,
+  ConnectivityStats
 } from './types';
 import { PURE_RATIO, TRANSITION_RATIO } from './types';
 
@@ -77,11 +77,11 @@ export function generateWorld(config: WorldGenerationConfig = {}): WorldGenerati
 
   // PHASE 3.5: Adjust connectivity per ecosystem
   console.log('\n🔗 Phase 3.5: Adjusting connectivity per ecosystem...');
-  const { connectivityVertices, connectivityStats: adjustedConnectivityStats, adjustedEdges } = adjustEcosystemConnectivity(ditheredVertices, processedEdges, rng);
+  const { connectivityVertices, adjustedEdges } = adjustEcosystemConnectivity(ditheredVertices, processedEdges, rng);
 
   // PHASE 3.6: Apply eastern marsh zone
   console.log('\n🏞️  Phase 3.6: Applying eastern marsh zone...');
-  const { marshVertices, marshStats } = applyEasternMarshZone(connectivityVertices);
+  const { marshVertices } = applyEasternMarshZone(connectivityVertices);
 
   // PHASE 4: Validate connectivity and ecosystem distribution
   console.log('\n✅ Phase 4: Validating connectivity and distribution...');
@@ -531,7 +531,7 @@ function applyDiagonalIntersectionRule(
       const squareVertices = findSquareVertices(edge1, edge2, vertexMap);
 
       if (squareVertices) {
-        const { topLeft, topRight, bottomLeft, bottomRight } = squareVertices;
+        const { topLeft } = squareVertices;
 
         // Check if this is a valid 2x2 square with diagonal intersections
         if (isValidDiagonalIntersection(edge1, edge2, squareVertices)) {
@@ -661,7 +661,7 @@ function addOrthogonalConnections(
     bottomLeft: WorldVertex,
     bottomRight: WorldVertex
   },
-  vertices: WorldVertex[],
+  _vertices: WorldVertex[],
   edges: RiverEdge[],
   vertexMap: Map<string, WorldVertex>
 ): number {
@@ -809,9 +809,6 @@ function applyEasternMarshZone(vertices: WorldVertex[]): {
   // Find the easternmost column
   const easternColumn = Math.max(...vertices.map(v => v.gridX));
 
-  // Count vertices in eastern column before conversion
-  const easternVertices = vertices.filter(v => v.gridX === easternColumn);
-
   // Assign marsh ecosystem to all vertices in easternmost column
   let marshCount = 0;
   marshVertices.forEach(vertex => {
@@ -956,7 +953,7 @@ function calculateEcosystemConnectivity(vertices: WorldVertex[]): Record<Ecosyst
  */
 function addEcosystemEdges(
   ecosystemVertices: WorldVertex[],
-  allVertices: WorldVertex[],
+  _allVertices: WorldVertex[],
   edges: RiverEdge[],
   targetCount: number,
   rng: () => number
@@ -1056,7 +1053,7 @@ function removeEcosystemEdges(
 /**
  * Verify that the graph remains connected from the origin
  */
-function verifyGraphConnectivity(vertices: WorldVertex[], edges: RiverEdge[]): boolean {
+function verifyGraphConnectivity(vertices: WorldVertex[], _edges: RiverEdge[]): boolean {
   const origin = vertices.find(v => v.isOrigin);
   if (!origin) return false;
 

@@ -473,10 +473,6 @@ const drawWorld = (ctx: CanvasRenderingContext2D, world: WorldGenerationResult, 
     y: (y - worldCenterY) * scale + canvasCenterY + panY
   })
 
-  // Test transformation
-  const testVertex = world.vertices[0]
-  const testCoords = transform(testVertex.x, testVertex.y)
-
   // Draw ecosystem bands first (background)
   drawEcosystemBands(ctx, world, transform)
 
@@ -484,10 +480,10 @@ const drawWorld = (ctx: CanvasRenderingContext2D, world: WorldGenerationResult, 
   drawEcosystemUrns(ctx, world, canvasWidth, transform)
 
   // Draw connections second (so they appear behind places)
-  drawConnections(ctx, world, transform, tracedPath, pulseStartTime, scale)
+  drawConnections(ctx, world, transform, tracedPath, pulseStartTime)
 
   // Draw places last (so they appear on top)
-  drawVertices(ctx, world, transform, tracedPath, pulseStartTime, scale)
+  drawVertices(ctx, world, transform, tracedPath, pulseStartTime)
 }
 
 const getWorldBounds = (vertices: any[]) => {
@@ -547,16 +543,6 @@ const muteColor = (color: string): string => {
   return `#${mutedR.toString(16).padStart(2, '0')}${mutedG.toString(16).padStart(2, '0')}${mutedB.toString(16).padStart(2, '0')}`
 }
 
-// Helper function to map ecosystem to ecosystem band (marsh is part of jungle band)
-const getEcosystemBand = (ecosystem: string): string => {
-  if (ecosystem.includes('steppe')) return 'steppe'
-  if (ecosystem.includes('grassland')) return 'grassland'
-  if (ecosystem.includes('forest')) return 'forest'
-  if (ecosystem.includes('mountain')) return 'mountain'
-  if (ecosystem.includes('jungle') || ecosystem.includes('marsh')) return 'jungle'
-  return 'unknown'
-}
-
 // Helper function to create a lighter, more transparent version of a color for pulse effects
 const createPulseColor = (baseColor: string, brightness: number = 1): string => {
   // Remove # if present
@@ -582,7 +568,6 @@ const drawConnections = (
   transform: (x: number, y: number) => { x: number; y: number },
   tracedPath: string[] = [],
   pulseStartTime: number = 0,
-  scale: number = 1
 ) => {
   // Create a vertex map for efficient lookup
   const vertexMap = new Map<string, WorldVertex>()
@@ -692,7 +677,6 @@ const drawVertices = (
   transform: (x: number, y: number) => { x: number; y: number },
   tracedPath: string[] = [],
   pulseStartTime: number = 0,
-  scale: number = 1
 ) => {
 
 
