@@ -1,18 +1,19 @@
 /**
  * Main World Generation Function
  * Implements continuous river flow with Gaussian ecosystem dithering
+ * Uses 50% bleeding proportions for extensive ecosystem transitions
  */
 
 import type {
-  WorldGenerationConfig,
-  WorldGenerationResult,
-  SpatialMetrics,
-  EcosystemBand,
-  WorldVertex,
-  RiverEdge,
-  EcosystemType,
-  DitheringStats,
-  ConnectivityStats
+    WorldGenerationConfig,
+    WorldGenerationResult,
+    SpatialMetrics,
+    EcosystemBand,
+    WorldVertex,
+    RiverEdge,
+    EcosystemType,
+    DitheringStats,
+    ConnectivityStats
 } from './types';
 import { PURE_RATIO, TRANSITION_RATIO } from './types';
 
@@ -1137,8 +1138,8 @@ function applyGaussianDithering(
         boundaryX = currentBand.endX;
         distanceToBoundary = boundaryX - vertex.x; // Distance from vertex to right boundary
 
-        // Dithering zone extends 38% of band width from the boundary
-        const ditheringZoneWidth = currentBand.width * 0.38;
+        // Dithering zone extends 50% of band width from the boundary
+        const ditheringZoneWidth = currentBand.width * 0.5;
         isInDitheringZone = distanceToBoundary >= 0 && distanceToBoundary <= ditheringZoneWidth;
 
       } else if (adjBand.endX <= currentBand.startX) {
@@ -1146,8 +1147,8 @@ function applyGaussianDithering(
         boundaryX = currentBand.startX;
         distanceToBoundary = vertex.x - boundaryX; // Distance from vertex to left boundary
 
-        // Dithering zone extends 38% of band width from the boundary
-        const ditheringZoneWidth = currentBand.width * 0.38;
+        // Dithering zone extends 50% of band width from the boundary
+        const ditheringZoneWidth = currentBand.width * 0.5;
         isInDitheringZone = distanceToBoundary >= 0 && distanceToBoundary <= ditheringZoneWidth;
 
       } else {
@@ -1165,7 +1166,7 @@ function applyGaussianDithering(
     // Debug: (removed for production)
 
     // Distance-based transition probability
-    const maxTransitionDistance = currentBand.width * 0.38; // 38% of band width for transition
+    const maxTransitionDistance = currentBand.width * 0.5; // 50% of band width for transition
     const normalizedDistance = Math.min(Math.abs(distanceToBoundary) / maxTransitionDistance, 1.0);
 
     // Smooth transition curve: closer to boundary = higher transition probability

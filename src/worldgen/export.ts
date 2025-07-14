@@ -55,39 +55,39 @@ export interface EcologicalProfile {
 const ECOSYSTEM_ECOLOGICAL_PROFILES: Record<EcosystemType, EcologicalProfile> = {
   'steppe': {
     ecosystem: 'flux:eco:steppe:arid',
-    temperature: [10.0, 40.0],    // Hot, dry climate
-    pressure: [1000.0, 1030.0],   // High pressure systems
-    humidity: [20.0, 60.0]        // Low humidity
+    temperature: [15.0, 35.0],    // Hot, continental climate
+    pressure: [1010.0, 1030.0],   // High pressure systems
+    humidity: [15.0, 45.0]        // Arid conditions
   },
   'grassland': {
     ecosystem: 'flux:eco:grassland:temperate',
-    temperature: [0.0, 35.0],     // Moderate temperature range
-    pressure: [980.0, 1020.0],    // Variable pressure
-    humidity: [40.0, 80.0]        // Moderate humidity
+    temperature: [0.0, 40.0],     // Extreme seasonal range
+    pressure: [980.0, 1020.0],    // Variable pressure systems
+    humidity: [35.0, 65.0]        // Moderate humidity
   },
   'forest': {
     ecosystem: 'flux:eco:forest:temperate',
     temperature: [5.0, 30.0],     // Mild, stable climate
     pressure: [990.0, 1020.0],    // Stable pressure
-    humidity: [50.0, 90.0]        // Higher humidity
+    humidity: [55.0, 85.0]        // Forest moisture retention
   },
   'mountain': {
     ecosystem: 'flux:eco:mountain:arid',
-    temperature: [5.0, 25.0],     // Cooler at altitude
-    pressure: [950.0, 1000.0],    // Low pressure (high altitude)
-    humidity: [50.0, 90.0]        // Variable humidity
+    temperature: [-5.0, 25.0],    // Alpine temperature variation
+    pressure: [950.0, 990.0],     // Low pressure (high altitude)
+    humidity: [10.0, 35.0]        // Arid mountain conditions
   },
   'jungle': {
     ecosystem: 'flux:eco:jungle:tropical',
-    temperature: [20.0, 35.0],    // Hot, humid climate
+    temperature: [20.0, 35.0],    // Consistently hot tropical
     pressure: [1000.0, 1020.0],   // Stable tropical pressure
-    humidity: [70.0, 95.0]        // High humidity
+    humidity: [75.0, 95.0]        // High tropical humidity
   },
   'marsh': {
     ecosystem: 'flux:eco:marsh:tropical',
-    temperature: [15.0, 30.0],    // Warm, humid climate
-    pressure: [1000.0, 1020.0],   // Stable pressure
-    humidity: [80.0, 95.0]        // Very high humidity
+    temperature: [10.0, 30.0],    // Cooler wetland temperatures
+    pressure: [1020.0, 1040.0],   // Higher pressure (below sea level)
+    humidity: [85.0, 100.0]       // Saturated wetland conditions
   }
 };
 
@@ -238,22 +238,16 @@ export function getEcologicalProfile(ecosystemType: EcosystemType): EcologicalPr
  * Generate realistic weather for a vertex using seeded randomness
  */
 export function generateRealisticWeather(vertex: WorldVertex, world: WorldGenerationResult, rng: () => number): Weather {
+  // Calculate spatial gradients based on world position
+  const spatialWeather = calculateSpatialWeatherGradients(vertex, world);
+
+  // Get ecological constraints for this ecosystem
   const ecology = getEcologicalProfile(vertex.ecosystem);
-  const [tempMin, tempMax] = ecology.temperature;
-  const [pressureMin, pressureMax] = ecology.pressure;
-  const [humidityMin, humidityMax] = ecology.humidity;
 
-  // Generate base weather within ecological bounds
-  const temperature = tempMin + (tempMax - tempMin) * rng();
-  const pressure = pressureMin + (pressureMax - pressureMin) * rng();
-  const humidity = humidityMin + (humidityMax - humidityMin) * rng();
-
-  // Apply spatial coherence with neighbors
-  const neighbors = world.edges
-    .filter(edge => edge.fromVertexId === vertex.id || edge.toVertexId === vertex.id)
-    .map(edge => edge.fromVertexId === vertex.id ? edge.toVertexId : edge.fromVertexId)
-    .map(id => world.vertices.find(v => v.id === id))
-    .filter(v => v !== undefined);
+  // Blend spatial gradients with ecological constraints
+  const temperature = constrainToEcologicalBounds(spatialWeather.temperature, ecology.temperature, rng);
+  const pressure = constrainToEcologicalBounds(spatialWeather.pressure, ecology.pressure, rng);
+  const humidity = constrainToEcologicalBounds(spatialWeather.humidity, ecology.humidity, rng);
 
   // Calculate derived weather phenomena
   const precipitation = calculatePrecipitation(temperature, pressure, humidity);
@@ -269,6 +263,143 @@ export function generateRealisticWeather(vertex: WorldVertex, world: WorldGenera
     clouds: Math.round(clouds * 10) / 10,
     ts: Date.now()
   };
+}
+
+/**
+ * Calculate spatial weather gradients based on world position
+ */
+function calculateSpatialWeatherGradients(vertex: WorldVertex, world: WorldGenerationResult): {
+  temperature: number;
+  pressure: number;
+  humidity: number;
+} {
+  // Find world boundaries
+  const minX = Math.min(...world.vertices.map(v => v.x));
+  const maxX = Math.max(...world.vertices.map(v => v.x));
+  const minY = Math.min(...world.vertices.map(v => v.y));
+  const maxY = Math.max(...world.vertices.map(v => v.y));
+
+  // Normalize position (0.0 to 1.0)
+  const normalizedX = (vertex.x - minX) / (maxX - minX);
+  const normalizedY = (vertex.y - minY) / (maxY - minY);
+
+  // TEMPERATURE GRADIENT: Increases west to east (steppe -> jungle)
+  // Base range: 0°C to 40°C across the world
+  const baseTemperature = 0 + (40 * normalizedX);
+
+  // Add north-south variation (cooler at extremes, warmer in middle)
+  const latitudinalEffect = Math.sin(normalizedY * Math.PI) * 10; // ±10°C variation
+  const temperature = baseTemperature + latitudinalEffect;
+
+  // PRESSURE GRADIENT: Varies with "elevation" and position
+  // Base sea level pressure, modified by ecosystem-implied elevation
+  const basePressure = 1013.25;
+
+  // West-east pressure gradient (higher pressure systems in west)
+  const longitudinalPressure = basePressure + (20 * (1 - normalizedX));
+
+  // Add topographic variation (mountains = lower pressure)
+  const topographicEffect = getTopographicPressureEffect(vertex, world);
+  const pressure = longitudinalPressure + topographicEffect;
+
+  // HUMIDITY GRADIENT: Increases west to east (arid -> tropical)
+  // Base range: 10% to 95% across the world
+  const baseHumidity = 10 + (85 * normalizedX);
+
+  // Add coastal/inland effects and topographic moisture
+  const moistureEffect = getTopographicMoistureEffect(vertex, world);
+  const humidity = Math.min(100, Math.max(0, baseHumidity + moistureEffect));
+
+  return { temperature, pressure, humidity };
+}
+
+/**
+ * Get pressure effect from topographic position
+ */
+function getTopographicPressureEffect(vertex: WorldVertex, world: WorldGenerationResult): number {
+  // Mountains have lower pressure due to elevation
+  if (vertex.ecosystem === 'mountain') {
+    return -30; // -30 hPa for mountain elevation
+  }
+
+  // Marshes have higher pressure if below sea level
+  if (vertex.ecosystem === 'marsh') {
+    return +20; // +20 hPa for below sea level
+  }
+
+  // Check if surrounded by mountains (in valley)
+  const neighbors = getNeighborVertices(vertex, world);
+  const mountainNeighbors = neighbors.filter(n => n.ecosystem === 'mountain').length;
+  const totalNeighbors = neighbors.length;
+
+  if (totalNeighbors > 0 && mountainNeighbors / totalNeighbors > 0.5) {
+    return -10; // Valley effect
+  }
+
+  return 0;
+}
+
+/**
+ * Get moisture effect from topographic position
+ */
+function getTopographicMoistureEffect(vertex: WorldVertex, world: WorldGenerationResult): number {
+  // Marshes have maximum moisture
+  if (vertex.ecosystem === 'marsh') {
+    return +15; // Extra humid
+  }
+
+  // Mountains create rain shadows (drier)
+  if (vertex.ecosystem === 'mountain') {
+    return -20; // Rain shadow effect
+  }
+
+  // Forest creates local humidity
+  if (vertex.ecosystem === 'forest') {
+    return +10; // Forest moisture retention
+  }
+
+  // Check for windward/leeward effects
+  const neighbors = getNeighborVertices(vertex, world);
+  const westNeighbors = neighbors.filter(n => n.x < vertex.x);
+  const mountainsToWest = westNeighbors.filter(n => n.ecosystem === 'mountain').length;
+
+  if (mountainsToWest > 0) {
+    return -15; // Leeward (rain shadow) effect
+  }
+
+  return 0;
+}
+
+/**
+ * Get neighboring vertices
+ */
+function getNeighborVertices(vertex: WorldVertex, world: WorldGenerationResult): WorldVertex[] {
+  return world.edges
+    .filter(edge => edge.fromVertexId === vertex.id || edge.toVertexId === vertex.id)
+    .map(edge => edge.fromVertexId === vertex.id ? edge.toVertexId : edge.fromVertexId)
+    .map(id => world.vertices.find(v => v.id === id))
+    .filter(v => v !== undefined) as WorldVertex[];
+}
+
+/**
+ * Constrain gradient value to ecological bounds with some randomness
+ */
+function constrainToEcologicalBounds(gradientValue: number, bounds: [number, number], rng: () => number): number {
+  const [min, max] = bounds;
+
+  // If gradient is within bounds, use it with slight randomness
+  if (gradientValue >= min && gradientValue <= max) {
+    const variation = (max - min) * 0.1; // 10% variation
+    return gradientValue + (rng() - 0.5) * variation;
+  }
+
+  // If gradient is outside bounds, pull it toward bounds but allow some overshoot
+  const overshoot = (max - min) * 0.05; // 5% overshoot allowed
+  const constrainedMin = min - overshoot;
+  const constrainedMax = max + overshoot;
+
+  const constrained = Math.min(constrainedMax, Math.max(constrainedMin, gradientValue));
+  return constrained + (rng() - 0.5) * overshoot;
 }
 
 /**

@@ -1,11 +1,12 @@
 /**
  * Types for Continuous River Flow + Gaussian Ecosystem Dithering Worldgen System
+ * Uses 50% bleeding proportions for extensive ecosystem transitions
  */
 
-// Golden ratio constants for natural proportions
-export const GOLDEN_RATIO = 0.618;
-export const PURE_RATIO = 1 - GOLDEN_RATIO; // 0.382
-export const TRANSITION_RATIO = GOLDEN_RATIO; // 0.618
+// Dithering constants for 50% bleeding proportions
+export const BLEEDING_DISTANCE = 0.5; // 50% penetration into neighboring bands
+export const PURE_RATIO = 1 - BLEEDING_DISTANCE; // 0.5 (minimal pure zones)
+export const TRANSITION_RATIO = BLEEDING_DISTANCE; // 0.5 (extensive transition zones)
 
 // Ecosystem types
 export type EcosystemType =

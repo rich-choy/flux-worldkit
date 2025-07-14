@@ -1,5 +1,6 @@
 /**
  * Worldgen Module - Continuous River Flow with Gaussian Ecosystem Dithering
+ * Uses 50% bleeding proportions for extensive ecosystem transitions
  * Main entry point for the UI
  */
 
@@ -20,7 +21,7 @@ export type {
   DitheringContext
 } from './types';
 export {
-  GOLDEN_RATIO,
+  BLEEDING_DISTANCE,
   PURE_RATIO,
   TRANSITION_RATIO
 } from './types';

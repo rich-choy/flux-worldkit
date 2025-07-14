@@ -27,19 +27,19 @@ We are building a **terrain-driven world generation system** that creates connec
 - Use natural river branching patterns (tributaries, deltas, confluence points)
 - Each vertex gets **initial ecosystem assignment** based on which band it's in
 
-#### Step 3: Ecosystem Dithering with Golden Ratio Proportions
+#### Step 3: Ecosystem Dithering with Extended Bleeding (50% Penetration)
 - Take the initial ecosystem assignments from Step 2 (based on band location)
-- Within each ecosystem band, use **golden ratio proportions**:
-  - **Pure ecosystem zone**: 38.2% of band width (1 - φ + 1 = 0.382)
-  - **Transition zone**: 61.8% of band width (φ - 1 = 0.618)
-- For vertices in pure zones: keep original ecosystem assignment
-- For vertices in transition zones: probabilistically reassign to adjacent ecosystem
-- Distance from boundary center determines probability weights
-- Creates natural ecosystem gradients instead of hard boundaries
+- Each ecosystem **bleeds 50% into its neighboring bands**:
+  - Ecosystems penetrate to the **midpoint** of adjacent ecosystem bands
+  - Only the **center** of each band remains purely that ecosystem (maximum 1 column)
+  - The rest of each band becomes transition zones with competing ecosystems
+- Distance from ecosystem center determines probability weights
+- Creates extensive ecosystem mixing with minimal pure zones
 
 **Example for 1000m bands:**
 ```
-| A (382m pure) | A↔B dithering (618m) | B (382m pure) | B↔C dithering (618m) | C (382m pure) |
+| A center | A↔B compete | B center | B↔C compete | C center |
+|   (1col)  |   (999col)  |   (1col) |   (999col)  |   (1col) |
 ```
 
 ### Ecosystem Progression (West to East)
@@ -239,19 +239,18 @@ function generateRiverFlow(metrics: SpatialMetrics, bands: EcosystemBand[]): Flo
 // 3. Apply Gaussian probability based on distance
 // 4. Assign ecosystem probabilistically
 
-const GOLDEN_RATIO = 0.618;
-const PURE_RATIO = 1 - GOLDEN_RATIO; // 0.382
-const TRANSITION_RATIO = GOLDEN_RATIO; // 0.618
+const BLEEDING_DISTANCE = 0.5; // 50% penetration into neighboring bands
+const PURE_ZONE_WIDTH = 0.0; // Minimal pure zones (center only)
 
 function calculateEcosystemProbability(vertex: Vertex, ecosystemBoundaries: Boundary[]): EcosystemProbability {
   // Implementation determines Gaussian weights based on distance from boundaries
 }
 ```
 
-#### Golden Ratio Proportions
-- **Pure zones**: 38.2% of each ecosystem band width
-- **Transition zones**: 61.8% of each ecosystem band width
-- **Natural feel**: Golden ratio creates aesthetically pleasing proportions
+#### Extended Bleeding Proportions
+- **Pure zones**: Minimal (center only, ~1 column per band)
+- **Transition zones**: Extensive (99% of each ecosystem band)
+- **Natural mixing**: 50% penetration creates realistic ecosystem gradients
 - **Smooth transitions**: Gaussian distribution prevents abrupt ecosystem changes
 
 ### Benefits of This Approach
@@ -260,7 +259,7 @@ function calculateEcosystemProbability(vertex: Vertex, ecosystemBoundaries: Boun
 2. **Continuous River System**: Single flowing network instead of disconnected bands
 3. **Realistic Geography**: Ecosystems transition gradually like in nature
 4. **Flexible Connectivity**: River flow independent of ecosystem assignments
-5. **Golden Ratio Aesthetics**: Natural proportions that feel organic
+5. **Extensive Ecosystem Mixing**: 50% penetration creates rich biodiversity transitions
 6. **Emergent Complexity**: Simple rules create complex, natural-looking worlds
 7. **Game Integration**: Direct export to game-compatible Place objects with realistic weather
 
@@ -292,7 +291,7 @@ const generatedWorld = await generateWorld(config)  // WorldGenerationResult
   - Show tributary/confluence patterns
 
 - **Analysis Mode**: Show ecosystem dithering results and statistics
-  - Visualize golden ratio zone boundaries (38.2% pure, 61.8% transition)
+  - Visualize extended bleeding zones (50% penetration, minimal pure zones)
   - Display ecosystem distribution patterns
   - Show connectivity density by ecosystem type
   - Highlight isolated ecosystem pockets (especially mountains)
@@ -318,7 +317,7 @@ const generatedWorld = await generateWorld(config)  // WorldGenerationResult
 **Core Algorithm**:
 - **Single connected component**: All vertices reachable from origin
 - **Natural transitions**: Smooth ecosystem gradients, no hard boundaries
-- **Golden ratio proportions**: 38.2% pure zones, 61.8% transition zones
+- **Extended bleeding proportions**: 50% penetration, minimal pure zones
 - **River-like flow**: Realistic tributary and confluence patterns
 - **Target connectivity**: Appropriate connection density per ecosystem type
 - **Grid alignment**: All connections at 45-degree multiples

@@ -21,8 +21,8 @@ describe('River Flow Generation', () => {
     expect(originVertex!.gridX).toBe(0);
     expect(['steppe', 'grassland']).toContain(originVertex!.ecosystem); // Origin can dither to adjacent ecosystem
 
-    // Verify all vertices have valid ecosystems
-    const validEcosystems = ['steppe', 'grassland', 'forest', 'mountain', 'jungle'];
+    // Verify all vertices have valid ecosystems (including marsh from eastern post-processing)
+    const validEcosystems = ['steppe', 'grassland', 'forest', 'mountain', 'jungle', 'marsh'];
     world.vertices.forEach(vertex => {
       expect(validEcosystems).toContain(vertex.ecosystem);
     });
@@ -39,20 +39,20 @@ describe('River Flow Generation', () => {
     expect(xPositions[xPositions.length - 1]).toBeGreaterThan(0); // Flow reaches east
   });
 
-  it('should apply Gaussian ecosystem dithering with golden ratio proportions', () => {
+  it('should apply Gaussian ecosystem dithering with 50% bleeding proportions', () => {
     const world = generateWorld({ seed: 12345 });
 
-    // Verify golden ratio proportions in ecosystem bands
+    // Verify 50% bleeding proportions in ecosystem bands
     const { ditheringStats } = world;
     const totalVertices = ditheringStats.totalVertices;
     const pureZoneRatio = ditheringStats.pureZoneVertices / totalVertices;
     const transitionZoneRatio = ditheringStats.transitionZoneVertices / totalVertices;
 
     // Allow for some variance due to discrete vertex placement
-    expect(pureZoneRatio).toBeGreaterThan(0.30); // Should be around 38.2%
-    expect(pureZoneRatio).toBeLessThan(0.50);
-    expect(transitionZoneRatio).toBeGreaterThan(0.50); // Should be around 61.8%
-    expect(transitionZoneRatio).toBeLessThan(0.70);
+    expect(pureZoneRatio).toBeGreaterThan(0.40); // Should be around 50%
+    expect(pureZoneRatio).toBeLessThan(0.60);
+    expect(transitionZoneRatio).toBeGreaterThan(0.40); // Should be around 50%
+    expect(transitionZoneRatio).toBeLessThan(0.60);
 
     // Verify that some vertices were actually dithered
     expect(ditheringStats.ditheredVertices).toBeGreaterThan(0);
@@ -79,8 +79,8 @@ describe('River Flow Generation', () => {
     expect(steppeInGrassland || jungleInMountain).toBe(true);
 
     console.log('✅ Gaussian dithering test passed!');
-    console.log(`📊 Pure zone ratio: ${(pureZoneRatio * 100).toFixed(1)}% (target: 38.2%)`);
-    console.log(`📊 Transition zone ratio: ${(transitionZoneRatio * 100).toFixed(1)}% (target: 61.8%)`);
+    console.log(`📊 Pure zone ratio: ${(pureZoneRatio * 100).toFixed(1)}% (target: 50%)`);
+    console.log(`📊 Transition zone ratio: ${(transitionZoneRatio * 100).toFixed(1)}% (target: 50%)`);
     console.log(`📊 Dithered vertices: ${ditheringStats.ditheredVertices}/${ditheringStats.transitionZoneVertices} (${(ditheringStats.ditheredVertices / ditheringStats.transitionZoneVertices * 100).toFixed(1)}%)`);
   });
 
