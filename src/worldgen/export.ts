@@ -5,6 +5,7 @@
  * conforming to the game's Place type definition.
  */
 
+import type { EcosystemURN } from 'node_modules/flux-game/dist/types/types/taxonomy';
 import type { WorldGenerationResult, WorldVertex, EcosystemType } from './types';
 
 // Place type definition (based on game/src/types/entity/place.ts)
@@ -14,7 +15,7 @@ export interface Place {
   description: string;
   exits: Exits;
   entities: PlaceEntities;
-  ecology: EcologicalProfile;
+  ecosystem: EcosystemURN;
   weather: Weather;
   coordinates: [number, number];
 }
@@ -574,7 +575,7 @@ export function exportWorldToJSONL(world: WorldGenerationResult, rng: () => numb
       description: generatePlaceDescription(vertex),
       exits: convertVertexExitsToPlaceExits(vertex, world),
       entities: {}, // Empty initially
-      ecology: getEcologicalProfile(vertex.ecosystem),
+      ecosystem: `flux:eco:${vertex.ecosystem}:${vertex.ecosystem}`,
       weather: generateRealisticWeather(vertex, world, rng),
       coordinates: coordinates
     };
