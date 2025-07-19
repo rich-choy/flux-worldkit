@@ -60,15 +60,15 @@ describe('River Flow Generation', () => {
 
     // Verify ecosystem distribution has natural variation
     const ecosystemCounts = ditheringStats.ecosystemCounts;
-    expect(ecosystemCounts.steppe).toBeGreaterThan(0);
-    expect(ecosystemCounts.grassland).toBeGreaterThan(0);
-    expect(ecosystemCounts.forest).toBeGreaterThan(0);
-    expect(ecosystemCounts.mountain).toBeGreaterThan(0);
-    expect(ecosystemCounts.jungle).toBeGreaterThan(0);
+    expect(ecosystemCounts['flux:eco:steppe:arid']).toBeGreaterThan(0);
+    expect(ecosystemCounts['flux:eco:grassland:temperate']).toBeGreaterThan(0);
+    expect(ecosystemCounts['flux:eco:forest:temperate']).toBeGreaterThan(0);
+    expect(ecosystemCounts['flux:eco:mountain:arid']).toBeGreaterThan(0);
+    expect(ecosystemCounts['flux:eco:jungle:tropical']).toBeGreaterThan(0);
 
     // Check that ecosystems can appear outside their primary bands (due to dithering)
-    const steppeVertices = world.vertices.filter(v => v.ecosystem === 'steppe');
-    const jungleVertices = world.vertices.filter(v => v.ecosystem === 'jungle');
+    const steppeVertices = world.vertices.filter(v => v.ecosystem === 'flux:eco:steppe:arid');
+    const jungleVertices = world.vertices.filter(v => v.ecosystem === 'flux:eco:jungle:tropical');
 
     // Some steppe vertices should appear in grassland band due to dithering
     const steppeInGrassland = steppeVertices.some(v => v.x >= 2900 && v.x < 5800);
@@ -139,8 +139,8 @@ describe('River Flow Generation', () => {
     const world = generateWorld({ seed: 786385 });
 
     // Check for impossible transitions by examining spatial distribution
-    const steppeVertices = world.vertices.filter(v => v.ecosystem === 'steppe');
-    const mountainVertices = world.vertices.filter(v => v.ecosystem === 'mountain');
+    const steppeVertices = world.vertices.filter(v => v.ecosystem === 'flux:eco:steppe:arid');
+    const mountainVertices = world.vertices.filter(v => v.ecosystem === 'flux:eco:mountain:arid');
 
     // Find any mountain vertices that appear in the steppe band (impossible transition)
     const mountainInSteppeBand = mountainVertices.filter(v => v.x < 2900); // Steppe band is 0-2900m
@@ -220,7 +220,7 @@ describe('River Flow Generation', () => {
     });
 
     // Check that mountain vertices don't form discrete vertical bands in non-adjacent ecosystems
-    const mountainVertices = world.vertices.filter(v => v.ecosystem === 'mountain');
+    const mountainVertices = world.vertices.filter(v => v.ecosystem === 'flux:eco:mountain:arid');
 
     // Mountain vertices should only appear in or near the mountain band (8700m-11600m)
     // They can dither into adjacent forest (5800m-8700m) or jungle (11600m-14500m) bands

@@ -13,12 +13,12 @@ export type {
   EcosystemBand,
   WorldVertex,
   RiverEdge,
-  EcosystemType,
+
   DitheringStats,
   ConnectivityStats,
   ZoneType,
   EcosystemProbability,
-  DitheringContext
+
 } from './types';
 export {
   BLEEDING_DISTANCE,

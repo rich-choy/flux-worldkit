@@ -1,21 +1,25 @@
+import type { EcosystemURN } from '@flux';
+import { GOLDEN_RATIO } from '@flux';
+
 /**
  * Types for Continuous River Flow + Gaussian Ecosystem Dithering Worldgen System
- * Uses 50% bleeding proportions for extensive ecosystem transitions
+ * Uses Golden Ratio bleeding proportions for natural ecosystem transitions
  */
 
-// Dithering constants for 50% bleeding proportions
-export const BLEEDING_DISTANCE = 0.5; // 50% penetration into neighboring bands
-export const PURE_RATIO = 1 - BLEEDING_DISTANCE; // 0.5 (minimal pure zones)
-export const TRANSITION_RATIO = BLEEDING_DISTANCE; // 0.5 (extensive transition zones)
+// Dithering constants using Golden Ratio
+export const BLEEDING_DISTANCE = GOLDEN_RATIO;
+export const PURE_RATIO = 1 - GOLDEN_RATIO;
+export const TRANSITION_RATIO = GOLDEN_RATIO;
 
-// Ecosystem types
-export type EcosystemType =
-  | 'steppe'
-  | 'grassland'
-  | 'forest'
-  | 'mountain'
-  | 'jungle'
-  | 'marsh';
+// Complete ecosystem URN progression (West to East)
+export const ECOSYSTEM_URNS = [
+  'flux:eco:steppe:arid',
+  'flux:eco:grassland:temperate',
+  'flux:eco:forest:temperate',
+  'flux:eco:mountain:arid',
+  'flux:eco:jungle:tropical',
+  'flux:eco:marsh:tropical'
+] as const satisfies readonly EcosystemURN[];
 
 // Spatial metrics for world generation
 export interface SpatialMetrics {
@@ -29,7 +33,7 @@ export interface SpatialMetrics {
 
 // Ecosystem band definition
 export interface EcosystemBand {
-  ecosystem: EcosystemType;
+  ecosystem: EcosystemURN;
   startX: number;
   endX: number;
   startCol: number;
@@ -48,7 +52,7 @@ export interface WorldVertex {
   y: number;
   gridX: number;
   gridY: number;
-  ecosystem: EcosystemType;
+  ecosystem: EcosystemURN;
   isOrigin: boolean;
   connections: string[]; // IDs of connected vertices
 }
@@ -69,7 +73,7 @@ export interface DitheringStats {
   pureZoneVertices: number;
   transitionZoneVertices: number;
   ditheredVertices: number;
-  ecosystemCounts: Record<EcosystemType, number>;
+  ecosystemCounts: Record<EcosystemURN, number>;
 }
 
 // Connectivity statistics
@@ -78,7 +82,7 @@ export interface ConnectivityStats {
   totalEdges: number;
   avgConnectionsPerVertex: number;
   connectedComponents: number;
-  ecosystemConnectivity: Record<EcosystemType, {
+  ecosystemConnectivity: Record<EcosystemURN, {
     count: number;
     avgConnections: number;
   }>;
@@ -122,7 +126,7 @@ export interface WorldGenerationResult {
   originVertex: WorldVertex;
   boundaryLines: Array<{
     x: number;
-    ecosystem: EcosystemType;
+    ecosystem: EcosystemURN;
     type: 'band' | 'pure' | 'transition';
   }>;
 
@@ -140,16 +144,6 @@ export type ZoneType = 'pure' | 'transition';
 
 // Ecosystem probability for dithering
 export interface EcosystemProbability {
-  ecosystem: EcosystemType;
+  ecosystem: EcosystemURN;
   probability: number;
-}
-
-// Dithering context
-export interface DitheringContext {
-  vertex: WorldVertex;
-  band: EcosystemBand;
-  zoneType: ZoneType;
-  distanceFromBoundary: number;
-  adjacentEcosystems: EcosystemType[];
-  probabilities: EcosystemProbability[];
 }

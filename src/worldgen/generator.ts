@@ -1,7 +1,7 @@
 /**
  * Main World Generation Function
  * Implements continuous river flow with Gaussian ecosystem dithering
- * Uses 50% bleeding proportions for extensive ecosystem transitions
+ * Uses Golden Ratio bleeding proportions for natural ecosystem transitions
  */
 
 import type {
@@ -11,11 +11,11 @@ import type {
   EcosystemBand,
   WorldVertex,
   RiverEdge,
-  EcosystemType,
   DitheringStats,
   ConnectivityStats
 } from './types';
-import { PURE_RATIO, TRANSITION_RATIO } from './types';
+import { PURE_RATIO, TRANSITION_RATIO, ECOSYSTEM_URNS } from './types';
+import type { EcosystemURN } from '@flux';
 
 // Default world configuration
 const DEFAULT_CONFIG: Required<WorldGenerationConfig> = {
@@ -30,14 +30,8 @@ const DEFAULT_CONFIG: Required<WorldGenerationConfig> = {
   seed: Date.now()
 };
 
-// Ecosystem progression (West to East)
-const ECOSYSTEM_PROGRESSION: EcosystemType[] = [
-  'steppe',
-  'grassland',
-  'forest',
-  'mountain',
-  'jungle'
-];
+// Ecosystem progression (West to East) - using the first 5 URNs
+const ECOSYSTEM_PROGRESSION: readonly EcosystemURN[] = ECOSYSTEM_URNS.slice(0, 5);
 
 /**
  * Main world generation function
@@ -183,7 +177,7 @@ function generateRiverFlow(
     y: originWorldY,
     gridX: originGridX,
     gridY: originGridY,
-    ecosystem: 'steppe', // First ecosystem
+    ecosystem: ECOSYSTEM_URNS[0], // First ecosystem (steppe)
     isOrigin: true,
     connections: []
   };
@@ -448,7 +442,7 @@ function selectWeightedMoves(
 /**
  * Determine ecosystem type based on world position
  */
-function determineEcosystemForPosition(worldX: number, bands: EcosystemBand[]): EcosystemType {
+function determineEcosystemForPosition(worldX: number, bands: EcosystemBand[]): EcosystemURN {
   for (const band of bands) {
     if (worldX >= band.startX && worldX < band.endX) {
       return band.ecosystem;
@@ -729,18 +723,14 @@ function applyEcosystemDithering(
   let transitionZoneVertices = 0;
   let ditheredCount = 0;
 
-  // Initialize ecosystem counts
-  const ecosystemCounts: Record<EcosystemType, number> = {
-    steppe: 0,
-    grassland: 0,
-    forest: 0,
-    mountain: 0,
-    jungle: 0,
-    marsh: 0
-  };
+    // Initialize ecosystem counts
+  const ecosystemCounts = {} as Record<EcosystemURN, number>;
+  ECOSYSTEM_URNS.forEach(urn => {
+    ecosystemCounts[urn] = 0;
+  });
 
   // Store original ecosystems before any dithering to prevent cascading effects
-  const originalEcosystems = new Map<string, EcosystemType>();
+  const originalEcosystems = new Map<string, EcosystemURN>();
   ditheredVertices.forEach(vertex => {
     originalEcosystems.set(vertex.id, vertex.ecosystem);
   });
@@ -813,7 +803,7 @@ function applyEasternMarshZone(vertices: WorldVertex[]): {
   let marshCount = 0;
   marshVertices.forEach(vertex => {
     if (vertex.gridX === easternColumn) {
-      vertex.ecosystem = 'marsh';
+      vertex.ecosystem = ECOSYSTEM_URNS[ECOSYSTEM_URNS.length - 1];
       marshCount++;
     }
   });
@@ -840,24 +830,24 @@ function adjustEcosystemConnectivity(
   connectivityVertices: WorldVertex[],
   adjustedEdges: RiverEdge[],
   connectivityStats: {
-    originalConnectivity: Record<EcosystemType, number>,
-    targetConnectivity: Record<EcosystemType, number>,
-    adjustedConnectivity: Record<EcosystemType, number>,
+    originalConnectivity: Record<EcosystemURN, number>,
+    targetConnectivity: Record<EcosystemURN, number>,
+    adjustedConnectivity: Record<EcosystemURN, number>,
     edgesAdded: number,
     edgesRemoved: number
   }
 } {
   console.log(`🔗 Adjusting ecosystem connectivity...`);
 
-  // Target connectivity per ecosystem
-  const TARGET_CONNECTIVITY: Record<EcosystemType, number> = {
-    steppe: 3.0,
-    grassland: 3.0,
-    forest: 2.0,
-    jungle: 2.0,
-    mountain: 1.5,
-    marsh: 2.0  // Default for marsh (shouldn't be used at this stage)
-  };
+      // Target connectivity per ecosystem
+    const TARGET_CONNECTIVITY = {
+      [ECOSYSTEM_URNS[0]]: 3.0, // steppe
+      [ECOSYSTEM_URNS[1]]: 3.0, // grassland
+      [ECOSYSTEM_URNS[2]]: 2.0, // forest
+      [ECOSYSTEM_URNS[3]]: 1.5, // mountain
+      [ECOSYSTEM_URNS[4]]: 2.0, // jungle
+      [ECOSYSTEM_URNS[5]]: 2.0  // marsh (shouldn't be used at this stage)
+    } as Record<EcosystemURN, number>;
 
   // Create working copies
   const workingVertices: WorldVertex[] = vertices.map(v => ({ ...v, connections: [...v.connections] }));
@@ -871,7 +861,7 @@ function adjustEcosystemConnectivity(
   let edgesRemoved = 0;
 
   // Process each ecosystem
-  for (const ecosystem of Object.keys(TARGET_CONNECTIVITY) as EcosystemType[]) {
+  for (const ecosystem of Object.keys(TARGET_CONNECTIVITY) as EcosystemURN[]) {
     const ecosystemVertices = workingVertices.filter(v => v.ecosystem === ecosystem);
     if (ecosystemVertices.length === 0) continue;
 
@@ -928,7 +918,7 @@ function adjustEcosystemConnectivity(
 /**
  * Calculate average connectivity per ecosystem
  */
-function calculateEcosystemConnectivity(vertices: WorldVertex[]): Record<EcosystemType, number> {
+function calculateEcosystemConnectivity(vertices: WorldVertex[]): Record<EcosystemURN, number> {
   const ecosystemStats: Record<string, { totalConnections: number, vertexCount: number }> = {};
 
   vertices.forEach(vertex => {
@@ -940,9 +930,9 @@ function calculateEcosystemConnectivity(vertices: WorldVertex[]): Record<Ecosyst
     ecosystemStats[ecosystem].vertexCount += 1;
   });
 
-  const result: Record<EcosystemType, number> = {} as Record<EcosystemType, number>;
+  const result: Record<EcosystemURN, number> = {} as Record<EcosystemURN, number>;
   Object.entries(ecosystemStats).forEach(([ecosystem, stats]) => {
-    result[ecosystem as EcosystemType] = stats.vertexCount > 0 ? stats.totalConnections / stats.vertexCount : 0;
+    result[ecosystem as EcosystemURN] = stats.vertexCount > 0 ? stats.totalConnections / stats.vertexCount : 0;
   });
 
   return result;
@@ -1092,11 +1082,11 @@ function applyGaussianDithering(
   allBands: EcosystemBand[],
   config: Required<WorldGenerationConfig>,
   rng: () => number,
-  originalEcosystem: EcosystemType
-): EcosystemType {
+  originalEcosystem: EcosystemURN
+): EcosystemURN {
   // Find adjacent ecosystems
   const currentBandIndex = allBands.findIndex(b => b.ecosystem === currentBand.ecosystem);
-  const adjacentEcosystems: EcosystemType[] = [];
+  const adjacentEcosystems: EcosystemURN[] = [];
 
   // Add previous ecosystem (westward)
   if (currentBandIndex > 0) {
@@ -1116,7 +1106,7 @@ function applyGaussianDithering(
   }
 
   // Calculate smooth transition probabilities based on distance to ecosystem boundaries
-  const ecosystemProbabilities: { ecosystem: EcosystemType; probability: number }[] = [];
+  const ecosystemProbabilities: { ecosystem: EcosystemURN; probability: number }[] = [];
 
   // Base probability for staying in original ecosystem
   let originalProbability = 1.0;
@@ -1222,13 +1212,13 @@ function validateConnectivity(vertices: WorldVertex[], edges: RiverEdge[]): Conn
     avgConnectionsPerVertex: 0,
     connectedComponents: 1,
     ecosystemConnectivity: {
-      steppe: { count: 0, avgConnections: 0 },
-      grassland: { count: 0, avgConnections: 0 },
-      forest: { count: 0, avgConnections: 0 },
-      mountain: { count: 0, avgConnections: 0 },
-      jungle: { count: 0, avgConnections: 0 },
-      marsh: { count: 0, avgConnections: 0 }
-    }
+      [ECOSYSTEM_URNS[0]]: { count: 0, avgConnections: 0 }, // steppe
+      [ECOSYSTEM_URNS[1]]: { count: 0, avgConnections: 0 }, // grassland
+      [ECOSYSTEM_URNS[2]]: { count: 0, avgConnections: 0 }, // forest
+      [ECOSYSTEM_URNS[3]]: { count: 0, avgConnections: 0 }, // mountain
+      [ECOSYSTEM_URNS[4]]: { count: 0, avgConnections: 0 }, // jungle
+      [ECOSYSTEM_URNS[5]]: { count: 0, avgConnections: 0 }  // marsh
+    } as Record<EcosystemURN, { count: number; avgConnections: number }>
   };
 
   return connectivityStats;

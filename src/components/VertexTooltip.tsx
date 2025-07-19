@@ -73,7 +73,7 @@ const VertexTooltip: React.FC<VertexTooltipProps> = ({
   }, [isEditing])
 
   const getEcosystemDisplay = (vertex: WorldVertex): string => {
-    if (vertex.ecosystem === 'marsh') {
+    if (vertex.ecosystem.includes('marsh')) {
       return 'Marsh (within Jungle)'
     }
     return vertex.ecosystem.split(':')[2] || 'Unknown'

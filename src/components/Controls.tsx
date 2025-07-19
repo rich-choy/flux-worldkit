@@ -11,14 +11,7 @@ interface ControlsProps {
 
 const getRandomSeed = () => Math.floor(Math.random() * 1000000);
 
-// Simple seeded RNG for deterministic exports (matching generator.ts)
-function createSeededRNG(seed: number): () => number {
-  let state = seed;
-  return () => {
-    state = (state * 1664525 + 1013904223) % 2**32;
-    return state / 2**32;
-  };
-}
+
 
 export const Controls: React.FC<ControlsProps> = ({ onGenerateWorld, isGenerating, world, currentSeed }) => {
   const [worldWidthKm, setWorldWidthKm] = useState(14.5) // 14.5 km
@@ -65,10 +58,8 @@ export const Controls: React.FC<ControlsProps> = ({ onGenerateWorld, isGeneratin
     try {
       // Use the same seed as the world generation for deterministic exports
       const exportSeed = currentSeed || seed;
-      const rng = createSeededRNG(exportSeed);
-
       console.log('Exporting world to JSONL with seed:', exportSeed);
-      const jsonlContent = exportWorldToJSONL(world, rng);
+      const jsonlContent = exportWorldToJSONL(world);
 
             // Compute SHA-256 hash of the content for deterministic filename
       const encoder = new TextEncoder();
