@@ -55,6 +55,9 @@ export interface WorldVertex {
   ecosystem: EcosystemURN;
   isOrigin: boolean;
   connections: string[]; // IDs of connected vertices
+  metadata?: {
+    pathfindingOrigin?: WorldVertex;
+  };
 }
 
 // Edge representing river flow

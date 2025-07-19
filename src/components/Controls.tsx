@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import type { WorldGenerationConfig, WorldGenerationResult } from '../worldgen/types';
-import { exportWorldToJSONL, downloadJSONL } from '../worldgen/export';
+import { useWorldExport } from '../hooks/useWorldExport';
 
 interface ControlsProps {
   onGenerateWorld: (config: WorldGenerationConfig) => void
@@ -19,6 +19,9 @@ export const Controls: React.FC<ControlsProps> = ({ onGenerateWorld, isGeneratin
   const [branchingFactor, setBranchingFactor] = useState(1.0); // Default branching factor
   const [ditheringStrength, setDitheringStrength] = useState(0.5); // Default dithering strength
   const [seed, setSeed] = useState(getRandomSeed());
+
+  // Use the world export hook
+  const { exportWorld, isExporting } = useWorldExport();
 
   // Calculate grid dimensions for display
   const gridDimensions = useMemo(() => {
@@ -55,27 +58,9 @@ export const Controls: React.FC<ControlsProps> = ({ onGenerateWorld, isGeneratin
       return;
     }
 
-    try {
-      // Use the same seed as the world generation for deterministic exports
-      const exportSeed = currentSeed || seed;
-      console.log('Exporting world to JSONL with seed:', exportSeed);
-      const jsonlContent = exportWorldToJSONL(world);
-
-            // Compute SHA-256 hash of the content for deterministic filename
-      const encoder = new TextEncoder();
-      const data = encoder.encode(jsonlContent);
-      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-      const hashArray = Array.from(new Uint8Array(hashBuffer));
-      const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-
-      // Use full SHA-256 hash for filename (256-bit content integrity)
-      const filename = `world-${hashHex}.jsonl`;
-
-      downloadJSONL(jsonlContent, filename);
-      console.log(`World exported successfully: ${filename} (content hash: ${hashHex})`);
-    } catch (error) {
-      console.error('Export failed:', error);
-    }
+    // Use the same seed as the world generation for deterministic exports
+    const exportSeed = currentSeed || seed;
+    await exportWorld(world, exportSeed);
   }
 
   const handleWidthChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -240,11 +225,11 @@ export const Controls: React.FC<ControlsProps> = ({ onGenerateWorld, isGeneratin
           {/* Export Button */}
           <button
             onClick={handleExportClick}
-            disabled={isGenerating || !world}
+            disabled={isGenerating || !world || isExporting}
             className="btn btn-secondary px-3 py-1 text-xs whitespace-nowrap"
             title="Export world to JSONL"
           >
-            Export
+            {isExporting ? 'Exporting...' : 'Export'}
           </button>
         </div>
       </div>

@@ -1,7 +1,22 @@
 import React from 'react';
 import type { WorldGenerationResult } from '../worldgen/types';
-import type { ViewMode } from '~/App';
+import type { ViewMode } from '../App';
 import { Canvas } from './Canvas';
+import type { EcosystemURN, Biome } from '@flux';
+
+// Helper functions for URN handling
+function getBiomeFromURN(ecosystemURN: EcosystemURN): Biome {
+  return ecosystemURN.split(':')[2] as Biome;
+}
+
+function formatBiomeName(biome: Biome): string {
+  return biome.charAt(0).toUpperCase() + biome.slice(1);
+}
+
+function getEcosystemDisplayName(ecosystemURN: EcosystemURN): string {
+  const biome = getBiomeFromURN(ecosystemURN);
+  return formatBiomeName(biome);
+}
 
 
 interface ViewportProps {
@@ -168,7 +183,7 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({ world }) => {
           <div className="space-y-2 text-sm">
             {Object.entries(world.ditheringStats.ecosystemCounts).map(([ecosystem, count]) => {
               const percentage = ((count / world.ditheringStats.totalVertices) * 100).toFixed(1)
-              const ecosystemName = ecosystem.charAt(0).toUpperCase() + ecosystem.slice(1)
+              const ecosystemName = getEcosystemDisplayName(ecosystem as EcosystemURN);
 
               return (
                 <div key={ecosystem} className="flex justify-between">
@@ -186,26 +201,26 @@ const AnalysisView: React.FC<AnalysisViewProps> = ({ world }) => {
           </h3>
           <div className="space-y-2 text-sm">
             {(() => {
-              // Calculate connections per ecosystem using vertices
+              // Calculate connections per ecosystem using vertices - group by biome
               const ecosystemConnections = world.vertices.reduce((acc: Record<string, { total: number; vertices: number }>, vertex) => {
-                const ecosystem = vertex.ecosystem
+                const biome = getBiomeFromURN(vertex.ecosystem); // Extract biome from URN
                 const connectionCount = vertex.connections.length
 
-                if (!acc[ecosystem]) {
-                  acc[ecosystem] = { total: 0, vertices: 0 }
+                if (!acc[biome]) {
+                  acc[biome] = { total: 0, vertices: 0 }
                 }
-                acc[ecosystem].total += connectionCount
-                acc[ecosystem].vertices += 1
+                acc[biome].total += connectionCount
+                acc[biome].vertices += 1
 
                 return acc
               }, {} as Record<string, { total: number; vertices: number }>)
 
-              return Object.entries(ecosystemConnections).map(([ecosystem, data]) => {
+              return Object.entries(ecosystemConnections).map(([biome, data]) => {
                 const avgConnections = data.vertices > 0 ? (data.total / data.vertices).toFixed(1) : '0'
-                const ecosystemName = ecosystem.charAt(0).toUpperCase() + ecosystem.slice(1)
+                const ecosystemName = formatBiomeName(biome as Biome);
 
                 return (
-                  <div key={ecosystem} className="flex justify-between">
+                  <div key={biome} className="flex justify-between">
                     <span className="text-text-dim">{ecosystemName}:</span>
                     <span className="text-text">{avgConnections} avg connections</span>
                   </div>

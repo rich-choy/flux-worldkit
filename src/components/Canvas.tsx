@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import type { WorldGenerationResult, WorldVertex } from '../worldgen/types'
 import { findShortestPathFromOrigin } from '../worldgen'
-import type { Place } from 'flux-game'
+import type { Place, EcosystemURN, Biome } from 'flux-game'
 import VertexTooltip from './VertexTooltip'
 
 interface CanvasProps {
@@ -9,6 +9,11 @@ interface CanvasProps {
   zoom: number
   panX: number
   panY: number
+}
+
+// Helper function to extract biome from ecosystem URN
+function getBiomeFromURN(ecosystemURN: EcosystemURN): Biome {
+  return ecosystemURN.split(':')[2] as Biome;
 }
 
 // Gruvbox Dark Material colors for ecosystems
@@ -28,21 +33,8 @@ const NODE_COLORS = {
   'forest': '#00ff00',         // Fully saturated green
   'mountain': '#ff0000',       // Red - rocky mountains
   'jungle': '#006400',         // Dark green - darker than forest
-  'marsh': '#556b2f'           // Dark olive green - swampy marsh
+  'marsh': '#4682B4'           // Steel blue - wetland water
 }
-
-// Map ecosystem types to URNs for display
-const ECOSYSTEM_URNS = {
-  'steppe': 'flux:eco:steppe:arid',
-  'grassland': 'flux:eco:grassland:temperate',
-  'forest': 'flux:eco:forest:temperate',
-  'mountain': 'flux:eco:mountain:arid',
-  'jungle': 'flux:eco:jungle:tropical',
-  'marsh': 'flux:eco:marsh:tropical'
-}
-
-// Reserved space at the top for ecosystem URNs
-const URN_AREA_HEIGHT = 28
 
 export const Canvas: React.FC<CanvasProps> = ({ world, zoom, panX, panY }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -157,7 +149,7 @@ export const Canvas: React.FC<CanvasProps> = ({ world, zoom, panX, panY }) => {
     if (!world) return null
 
     // Use the EXACT same transform function as drawWorld
-    const availableCanvasHeight = dimensions.height - URN_AREA_HEIGHT
+    const availableCanvasHeight = dimensions.height
 
     const worldBounds = getWorldBounds(world.vertices)
     const scaleX = dimensions.width / worldBounds.width
@@ -169,7 +161,7 @@ export const Canvas: React.FC<CanvasProps> = ({ world, zoom, panX, panY }) => {
     const worldCenterX = worldBounds.minX + worldBounds.width / 2
     const worldCenterY = worldBounds.minY + worldBounds.height / 2
     const canvasCenterX = dimensions.width / 2
-    const canvasCenterY = URN_AREA_HEIGHT + (availableCanvasHeight / 2) - 25 // Position graph closer to URN area
+    const canvasCenterY = (availableCanvasHeight / 2) - 25 // Center the graph vertically
 
     // Transform world coordinates to canvas coordinates (with zoom and pan)
     const transform = (x: number, y: number) => ({
@@ -225,36 +217,25 @@ export const Canvas: React.FC<CanvasProps> = ({ world, zoom, panX, panY }) => {
 
         // Set new hover timeout (200ms delay)
         hoverTimeoutRef.current = setTimeout(() => {
-          // Note: In the new structure, vertices don't have separate places
-          const place = null
-          if (place) {
-            setHoveredVertex(vertex)
-            setHoveredPlace(place)
-            setTooltipPosition({ x: e.clientX, y: e.clientY })
-            setIsTooltipVisible(true)
-          }
+          // Create a basic place object from vertex data for tooltip display
+          const biome = getBiomeFromURN(vertex.ecosystem);
+          const place = {
+            id: vertex.id,
+            urn: `flux:place:${biome}`,
+            type: 'place',
+            name: `${biome.charAt(0).toUpperCase() + biome.slice(1)} Location`,
+            description: `A location in the ${biome} biome at coordinates (${vertex.gridX}, ${vertex.gridY}).`,
+            exits: {},
+            resources: {}
+          } as unknown as Place;
+
+          setHoveredVertex(vertex)
+          setHoveredPlace(place)
+          setTooltipPosition({ x: e.clientX, y: e.clientY })
+          setIsTooltipVisible(true)
         }, 200)
 
-        // Clear existing path trace timeout
-        if (pathTraceTimeoutRef.current) {
-          clearTimeout(pathTraceTimeoutRef.current)
-        }
-
-        // Set new path trace timeout (250ms delay)
-        pathTraceTimeoutRef.current = setTimeout(() => {
-          if (world && world.vertices && world.edges) {
-            console.log('🔍 Tracing path to vertex:', vertex.id, vertex.ecosystem, `(${vertex.gridX}, ${vertex.gridY})`)
-            const path = findShortestPathFromOrigin(world.vertices, world.edges, vertex.id)
-            console.log('📍 Found path:', path)
-            if (path && path.length > 0) {
-              setTracedPath(path)
-              setPulseStartTime(Date.now())
-              console.log('✨ Starting pulse animation with', path.length, 'vertices')
-            } else {
-              console.log('❌ No path found')
-            }
-          }
-        }, 250)
+                // Path tracing is now handled by click, not mouseover
       } else {
         // Same vertex, update tooltip position
         setTooltipPosition({ x: e.clientX, y: e.clientY })
@@ -272,8 +253,7 @@ export const Canvas: React.FC<CanvasProps> = ({ world, zoom, panX, panY }) => {
         pathTraceTimeoutRef.current = null
       }
 
-      // Clear traced path
-      setTracedPath([])
+      // Don't immediately clear traced path - let it fade naturally
 
       if (!isTooltipHovered) {
         // Add delay before hiding tooltip to allow moving to it
@@ -292,39 +272,59 @@ export const Canvas: React.FC<CanvasProps> = ({ world, zoom, panX, panY }) => {
       hoverTimeoutRef.current = null
     }
 
-    // Clear path trace timeout
-    if (pathTraceTimeoutRef.current) {
-      clearTimeout(pathTraceTimeoutRef.current)
-      pathTraceTimeoutRef.current = null
-    }
+    // Don't clear path trace timeout - let animations complete
+    // Path will naturally fade after the animation duration
 
-    // Clear traced path
-    setTracedPath([])
-
-    // Only hide immediately if tooltip is not hovered
+    // Only hide tooltip if not hovered, with a delay to reduce flickering
     if (!isTooltipHovered) {
-      setIsTooltipVisible(false)
-      setHoveredVertex(null)
-      setHoveredPlace(null)
-    } else {
-      // Start hide timeout to hide when mouse leaves tooltip
       hideTimeoutRef.current = setTimeout(() => {
         if (!isTooltipHovered) {
           setIsTooltipVisible(false)
           setHoveredVertex(null)
           setHoveredPlace(null)
         }
-      }, 300)
+      }, 500) // Longer delay to reduce flickering
     }
   }
 
-  // Handle vertex updates from tooltip (placeholder - no editable places in new structure)
-  const handlePlaceUpdate = (vertexId: string, updates: { name?: string; description?: string }) => {
+    const handleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!world) return
 
-    // Note: In the new structure, vertices don't have separate editable places
-    // This functionality would need to be implemented differently if needed
-    console.log('Vertex update requested:', vertexId, updates)
+    const canvas = canvasRef.current
+    if (!canvas) return
+
+    const rect = canvas.getBoundingClientRect()
+    const canvasX = e.clientX - rect.left
+    const canvasY = e.clientY - rect.top
+
+    const vertex = findVertexAtPosition(canvasX, canvasY)
+
+    if (vertex) {
+      // Clear previous traced path when starting new trace
+      setTracedPath([])
+      setPulseStartTime(0)
+
+      // Start path tracing immediately on click
+      if (world && world.vertices && world.edges) {
+        console.log('🔍 Tracing path to vertex:', vertex.id, vertex.ecosystem, `(${vertex.gridX}, ${vertex.gridY})`)
+        const path = findShortestPathFromOrigin(world.vertices, world.edges, vertex.id)
+        console.log('📍 Found path:', path)
+        if (path && path.length > 0) {
+          setTracedPath(path)
+          setPulseStartTime(Date.now())
+          console.log('✨ Starting pulse animation with', path.length, 'vertices')
+
+          // Path now persists until next click - no auto-clear timeout
+        } else {
+          console.log('❌ No path found')
+        }
+      }
+    } else {
+      // Clicked on empty space - clear any existing path
+      console.log('🚫 Clicked on empty space - clearing path')
+      setTracedPath([])
+      setPulseStartTime(0)
+    }
   }
 
   // Handle tooltip hover to keep it visible
@@ -361,6 +361,7 @@ export const Canvas: React.FC<CanvasProps> = ({ world, zoom, panX, panY }) => {
         style={{ width: '100%', height: '100%' }}
         onMouseMove={handleMouseMove}
         onMouseLeave={handleMouseLeave}
+        onClick={handleClick}
       />
 
       {/* Tooltip */}
@@ -371,7 +372,6 @@ export const Canvas: React.FC<CanvasProps> = ({ world, zoom, panX, panY }) => {
           position={tooltipPosition}
           isVisible={isTooltipVisible}
           onClose={() => setIsTooltipVisible(false)}
-          onSave={handlePlaceUpdate}
           onMouseEnter={handleTooltipMouseEnter}
           onMouseLeave={handleTooltipMouseLeave}
         />
@@ -380,45 +380,7 @@ export const Canvas: React.FC<CanvasProps> = ({ world, zoom, panX, panY }) => {
   )
 }
 
-const drawEcosystemUrns = (ctx: CanvasRenderingContext2D, world: WorldGenerationResult, canvasWidth: number, transform: (x: number, y: number) => { x: number; y: number }) => {
-  const urnY = URN_AREA_HEIGHT - 8 // Position with top margin, closer to bottom of URN area
 
-  // Draw URNs in the dedicated space at the top
-  world.ecosystemBands.forEach((band) => {
-    // Calculate horizontal position based on ecosystem band
-    const leftX = transform(band.startX, 0).x
-    const rightX = transform(band.endX, 0).x
-    const labelX = leftX + (rightX - leftX) / 2
-
-    // Only draw if the label would be visible on canvas
-    if (labelX >= 0 && labelX <= canvasWidth) {
-      // Draw ecosystem label with prominent styling
-      ctx.fillStyle = '#ebdbb2' // Gruvbox light text color
-      ctx.font = 'bold 14px monospace'
-      ctx.textAlign = 'center'
-      ctx.textBaseline = 'middle'
-
-      // Create a solid black background for maximum legibility
-      const urnText = ECOSYSTEM_URNS[band.ecosystem as keyof typeof ECOSYSTEM_URNS]
-      const textMetrics = ctx.measureText(urnText)
-      const textWidth = textMetrics.width
-      const textHeight = 16 // Slightly larger for bold text
-      const padding = 8
-
-      ctx.fillStyle = '#000000' // Solid black background
-      ctx.fillRect(labelX - textWidth / 2 - padding, urnY - textHeight / 2 - padding / 2, textWidth + padding * 2, textHeight + padding)
-
-      // Draw a subtle border around the black background
-      ctx.strokeStyle = '#333333'
-      ctx.lineWidth = 1
-      ctx.strokeRect(labelX - textWidth / 2 - padding, urnY - textHeight / 2 - padding / 2, textWidth + padding * 2, textHeight + padding)
-
-      // Draw the text on top
-      ctx.fillStyle = '#ebdbb2' // Gruvbox light text color
-      ctx.fillText(urnText, labelX, urnY)
-    }
-  })
-}
 
 const drawEcosystemBands = (ctx: CanvasRenderingContext2D, world: WorldGenerationResult, transform: (x: number, y: number) => { x: number; y: number }) => {
   // Use actual ecosystem bands from world generation
@@ -451,7 +413,7 @@ const drawWorld = (ctx: CanvasRenderingContext2D, world: WorldGenerationResult, 
   if (!world.vertices.length) return
 
   // Reserve space at the top for URN labels
-  const availableCanvasHeight = canvasHeight - URN_AREA_HEIGHT
+  const availableCanvasHeight = canvasHeight
 
   // Find world bounds from the vertices
   const worldBounds = getWorldBounds(world.vertices)
@@ -465,7 +427,7 @@ const drawWorld = (ctx: CanvasRenderingContext2D, world: WorldGenerationResult, 
   const worldCenterX = worldBounds.minX + worldBounds.width / 2
   const worldCenterY = worldBounds.minY + worldBounds.height / 2
   const canvasCenterX = canvasWidth / 2
-  const canvasCenterY = URN_AREA_HEIGHT + (availableCanvasHeight / 2) - 25 // Position graph closer to URN area
+  const canvasCenterY = (availableCanvasHeight / 2) - 25 // Center the graph vertically
 
   // Transform world coordinates to canvas coordinates (with zoom and pan)
   const transform = (x: number, y: number) => ({
@@ -476,8 +438,7 @@ const drawWorld = (ctx: CanvasRenderingContext2D, world: WorldGenerationResult, 
   // Draw ecosystem bands first (background)
   drawEcosystemBands(ctx, world, transform)
 
-  // Draw ecosystem URNs in the dedicated space at the top
-  drawEcosystemUrns(ctx, world, canvasWidth, transform)
+
 
   // Draw connections second (so they appear behind places)
   drawConnections(ctx, world, transform, tracedPath, pulseStartTime)
@@ -594,8 +555,10 @@ const drawConnections = (
       Math.abs(tracedPath.indexOf(fromVertex.id) - tracedPath.indexOf(toVertex.id)) === 1
 
     // Calculate edge color based on connected vertices
-    const fromVertexColor = NODE_COLORS[fromVertex.ecosystem as keyof typeof NODE_COLORS] || '#83a598'
-    const toVertexColor = NODE_COLORS[toVertex.ecosystem as keyof typeof NODE_COLORS] || '#83a598'
+    const fromBiome = getBiomeFromURN(fromVertex.ecosystem);
+    const toBiome = getBiomeFromURN(toVertex.ecosystem);
+    const fromVertexColor = NODE_COLORS[fromBiome as keyof typeof NODE_COLORS] || '#83a598'
+    const toVertexColor = NODE_COLORS[toBiome as keyof typeof NODE_COLORS] || '#83a598'
 
     let edgeColor: string
     if (fromVertex.ecosystem === toVertex.ecosystem) {
@@ -637,7 +600,8 @@ const drawConnections = (
         // Draw pulse background
         ctx.save()
         ctx.globalAlpha = pulseAlpha
-        const fromVertexColor = NODE_COLORS[fromVertex.ecosystem as keyof typeof NODE_COLORS] || '#83a598'
+        const fromBiome = getBiomeFromURN(fromVertex.ecosystem);
+      const fromVertexColor = NODE_COLORS[fromBiome as keyof typeof NODE_COLORS] || '#83a598'
         ctx.strokeStyle = createPulseColor(fromVertexColor, pulseBrightness) // Use vertex-specific color
         ctx.lineWidth = 8 + 4 * pulseBrightness // Consistent pixel size regardless of zoom
         ctx.beginPath()
@@ -712,7 +676,8 @@ const drawVertices = (
         // Draw pulse halo
         ctx.save()
         ctx.globalAlpha = pulseAlpha
-        const vertexColor = NODE_COLORS[vertex.ecosystem as keyof typeof NODE_COLORS] || '#83a598'
+        const biome = getBiomeFromURN(vertex.ecosystem);
+    const vertexColor = NODE_COLORS[biome as keyof typeof NODE_COLORS] || '#83a598'
         ctx.fillStyle = createPulseColor(vertexColor, pulseBrightness) // Use vertex-specific color
         ctx.beginPath()
         ctx.arc(pos.x, pos.y, pulseRadius, 0, 2 * Math.PI)
@@ -723,7 +688,8 @@ const drawVertices = (
 
     // Draw vertex circle
     const radius = vertex.isOrigin ? 8 : 6
-    ctx.fillStyle = NODE_COLORS[vertex.ecosystem as keyof typeof NODE_COLORS] || '#d79921'
+    const biome = getBiomeFromURN(vertex.ecosystem);
+    ctx.fillStyle = NODE_COLORS[biome as keyof typeof NODE_COLORS] || '#d79921'
     ctx.beginPath()
     ctx.arc(pos.x, pos.y, radius, 0, 2 * Math.PI)
     ctx.fill()
