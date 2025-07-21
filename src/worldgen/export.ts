@@ -199,6 +199,7 @@ export function generateSimpleWeather(vertex: WorldVertex): Weather {
     precipitation: Math.round(precipitation * 100) / 100,
     ppfd: Math.round(ppfd),
     clouds: Math.round(Math.min(100, clouds)),
+    fog: 0,
     ts
   };
 }

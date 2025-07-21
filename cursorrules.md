@@ -16,14 +16,33 @@ You are working on the **JSONL import/export functionality** for a MUD world gen
 - Handle file upload and parsing in UI
 - Validate imported data and handle errors gracefully
 
+## 🎯 **Recent Enhancement: Origin URN Format**
+
+**NEW**: Origin places now use a special URN format `flux:place:origin` instead of the ecosystem-based format. This eliminates the need for heuristic-based origin detection and provides 100% reliable origin identification.
+
+- **Before**: `flux:place:steppe:200:5000` (required name/description heuristics)
+- **After**: `flux:place:origin` (direct URN pattern detection)
+
+### 🎮 **MUD Server Integration**
+
+The origin place serves a critical role in the MUD server architecture:
+
+- **Player Spawn Point**: All newly created players start at the origin place (`flux:place:origin`)
+- **Server Assumptions**: The MUD server can make reliable assumptions about player initialization knowing all players begin at this well-defined location
+- **Guaranteed Existence**: The origin place is guaranteed to exist in every generated world, providing a stable foundation for server logic
+- **Unique Identity**: The simple URN format makes it easy for server code to reference and validate the starting location
+
+This change dramatically simplifies both the import logic and server-side player management.
+
 ## Actual JSONL Place Structure (Analyzed)
 
+### Origin Place (Special URN Format)
 ```json
 {
   "type": "place",
-  "id": "flux:place:steppe:200:5000",
-  "name": "Steppe Origin",
-  "description": "Wind-swept plains dotted with hardy shrubs. Multiple paths converge here.",
+  "id": "flux:place:origin",
+  "name": "Home base",
+  "description": "The home base of the player. This is the starting point for all players.",
   "exits": {
     "south": {"direction": "south", "label": "South Path", "to": "flux:place:steppe:200:4700"},
     "east": {"direction": "east", "label": "East Path", "to": "flux:place:steppe:500:5000"}
@@ -36,29 +55,54 @@ You are working on the **JSONL import/export functionality** for a MUD world gen
 }
 ```
 
+### Regular Place (Ecosystem-based URN Format)
+```json
+{
+  "type": "place",
+  "id": "flux:place:steppe:500:5000",
+  "name": "Windswept Plains",
+  "description": "Dry grasslands stretch endlessly toward the horizon.",
+  "exits": {
+    "west": {"direction": "west", "label": "West Path", "to": "flux:place:origin"},
+    "south": {"direction": "south", "label": "South Path", "to": "flux:place:steppe:500:4700"}
+  },
+  "entities": {},
+  "resources": {"ts": 1752945354486, "nodes": {}},
+  "ecosystem": "flux:eco:steppe:arid",
+  "weather": {"temperature": 22, "pressure": 1015, "humidity": 35, /* ... */},
+  "coordinates": [500, 5000]
+}
+```
+
 ## ✅ **Perfect WorldVertex Reconstruction Possible**
 
 ### **Available Data Mapping:**
 ```typescript
 // Direct field mapping
-vertex.id = place.id;                    // "flux:place:steppe:200:5000"
+vertex.id = place.id;                    // "flux:place:origin" or "flux:place:steppe:500:5000"
 vertex.ecosystem = place.ecosystem;      // "flux:eco:steppe:arid"
-vertex.x = place.coordinates[0];         // 200
-vertex.y = place.coordinates[1];         // 5000
+vertex.x = place.coordinates[0];         // 200 (from coordinates array)
+vertex.y = place.coordinates[1];         // 5000 (from coordinates array)
 
-// Derivable from Place ID URN pattern
-const urnParts = place.id.split(':');   // ["flux", "place", "steppe", "200", "5000"]
-vertex.gridX = parseInt(urnParts[3]);    // 200
-vertex.gridY = parseInt(urnParts[4]);    // 5000
+// Handle different URN patterns (origin vs regular places)
+const urnParts = place.id.split(':');   // ["flux", "place", "origin"] or ["flux", "place", "steppe", "500", "5000"]
+const isOrigin = place.id === "flux:place:origin";
+
+if (isOrigin) {
+  // Origin place: get coordinates from coordinates array
+  vertex.gridX = place.coordinates[0];   // 200
+  vertex.gridY = place.coordinates[1];   // 5000
+} else {
+  // Regular place: extract from URN
+  vertex.gridX = parseInt(urnParts[3]);  // 500
+  vertex.gridY = parseInt(urnParts[4]);  // 5000
+}
 
 // Extract from exits
 vertex.connections = Object.values(place.exits || {}).map(exit => exit.to);
 
-// Infer from multiple reliable indicators
-vertex.isOrigin = place.name.includes("Origin") ||
-                  place.description.includes("converge") ||
-                  place.description.includes("paths converge") ||
-                  gridX === 200; // Based on observed data pattern
+// Reliable origin detection from URN pattern
+vertex.isOrigin = isOrigin; // Direct check - no heuristics needed!
 ```
 
 ## Required Implementation Components
@@ -80,27 +124,31 @@ function parseJSONLFile(fileContent: string): Place[] {
 ### 2. **Direct Place → WorldVertex Converter**
 ```typescript
 function convertPlaceToWorldVertex(place: Place): WorldVertex {
-  // Extract grid coordinates from Place ID URN pattern
-  const urnParts = place.id.split(':'); // ["flux", "place", "biome", "x", "y"]
-  if (urnParts.length !== 5 || urnParts[0] !== 'flux' || urnParts[1] !== 'place') {
-    throw new Error(`Invalid Place ID format: ${place.id}`);
-  }
+  // Handle different URN patterns (origin vs regular places)
+  const isOrigin = place.id === "flux:place:origin";
+  let gridX: number, gridY: number;
 
-  const gridX = parseInt(urnParts[3]);
-  const gridY = parseInt(urnParts[4]);
+  if (isOrigin) {
+    // Origin place: simple URN, get coordinates from coordinates array
+    gridX = place.coordinates[0];
+    gridY = place.coordinates[1];
+  } else {
+    // Regular place: extract coordinates from URN pattern ["flux", "place", "biome", "x", "y"]
+    const urnParts = place.id.split(':');
+    if (urnParts.length !== 5 || urnParts[0] !== 'flux' || urnParts[1] !== 'place') {
+      throw new Error(`Invalid Place ID format: ${place.id}`);
+    }
 
-  if (isNaN(gridX) || isNaN(gridY)) {
-    throw new Error(`Invalid coordinates in Place ID: ${place.id}`);
+    gridX = parseInt(urnParts[3]);
+    gridY = parseInt(urnParts[4]);
+
+    if (isNaN(gridX) || isNaN(gridY)) {
+      throw new Error(`Invalid coordinates in Place ID: ${place.id}`);
+    }
   }
 
   // Extract connections from exits
   const connections = Object.values(place.exits || {}).map(exit => exit.to);
-
-  // Multiple strategies for origin detection (high reliability)
-  const isOrigin = place.name.includes("Origin") ||
-                   place.description.includes("converge") ||
-                   place.description.includes("paths converge") ||
-                   gridX === 200; // Based on observed data pattern
 
   return {
     id: place.id,
@@ -354,8 +402,17 @@ function validateImportedWorld(world: WorldGenerationResult): string[] {
     errors.push("No vertices found in imported data");
   }
 
+  // Critical: Origin validation for MUD server compatibility
   if (!world.originVertex) {
-    errors.push("No origin vertex found");
+    errors.push("No origin vertex found - required for player spawning");
+  } else if (world.originVertex.id !== "flux:place:origin") {
+    errors.push(`Invalid origin vertex ID: ${world.originVertex.id} (expected: flux:place:origin)`);
+  }
+
+  // Ensure origin place exists in vertices
+  const hasOriginPlace = world.vertices.some(v => v.id === "flux:place:origin");
+  if (!hasOriginPlace) {
+    errors.push("Origin place (flux:place:origin) not found in vertices - required for MUD server");
   }
 
   // Ecosystem validation
@@ -417,13 +474,16 @@ function validateImportedWorld(world: WorldGenerationResult): string[] {
 - ✅ **Round-trip fidelity**: Export → Import → Export produces identical results
 - ✅ **Error resilience**: Graceful handling of malformed or incomplete files
 - ✅ **User experience**: Clear feedback and intuitive interface
+- ✅ **MUD Server Compatibility**: Origin place (`flux:place:origin`) guaranteed to exist for reliable player spawning
 
 ## Key Advantages of This Approach
 
 1. **High Fidelity**: Place format preserves more data than original WorldVertex
 2. **Simple Implementation**: Direct field mapping, minimal transformation needed
-3. **Robust Origin Detection**: Multiple reliable strategies available
+3. **Perfect Origin Detection**: Origin URN pattern (`flux:place:origin`) enables 100% reliable origin identification
 4. **Complete Connectivity**: Full exit information enables perfect edge reconstruction
 5. **Validation Friendly**: Rich Place data enables comprehensive validation
+6. **Dual URN Support**: Seamlessly handles both origin places and regular ecosystem-based places
+7. **MUD Server Ready**: Origin place provides guaranteed spawn point for all new players, enabling reliable server assumptions
 
 Focus on **data integrity**, **simple implementation**, and **reliable reconstruction** using the rich Place format structure.
