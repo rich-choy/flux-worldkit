@@ -1,4 +1,4 @@
-import type { EcosystemURN } from '@flux';
+import type { EcosystemURN, PlaceURN } from '@flux';
 import { GOLDEN_RATIO } from '@flux';
 
 /**
@@ -48,6 +48,7 @@ export interface EcosystemBand {
 // Vertex in the river flow network
 export interface WorldVertex {
   id: string;
+  placeId: PlaceURN;
   x: number;
   y: number;
   gridX: number;

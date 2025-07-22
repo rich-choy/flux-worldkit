@@ -10,11 +10,13 @@ You are working on the **JSONL import/export functionality** for a MUD world gen
 - Export function: `exportWorldToJSONL(world: WorldGenerationResult): string[]`
 - Download functionality: `downloadJSONL(jsonlLines, filename)`
 
-❌ **Import Feature (Needed)**
+❌ **Import Feature (Done, but needs changes)**
 - Parse JSONL file back into `WorldVertex` objects for visualization
 - Reconstruct `WorldGenerationResult` structure for React components
 - Handle file upload and parsing in UI
 - Validate imported data and handle errors gracefully
+- Currently we loop over all the Places in the JSONL file and try to convert them to WorldVertex objects.
+- All we have to do, is just parse the front matter (the first line of the JSONL file), which gives us all the starting inputs that generated that world.
 
 ## 🎯 **Recent Enhancement: Origin URN Format**
 

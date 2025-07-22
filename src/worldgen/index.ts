@@ -6,6 +6,7 @@
 
 export { generateWorld, findPathFromOrigin, findShortestPathFromOrigin, findOriginVertex } from './generator';
 export { exportWorldToJSONL, downloadJSONL } from './export';
+export { reconstructWorldFromJSONL } from './import';
 export type {
   WorldGenerationConfig,
   WorldGenerationResult,

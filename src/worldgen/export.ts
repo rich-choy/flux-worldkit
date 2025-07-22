@@ -5,9 +5,15 @@
  * conforming to the game's Place type definition.
  */
 
-import type { Place, Exits, EcosystemURN, Weather, Biome, PlaceURN } from '@flux';
-import { EntityType, ECOLOGICAL_PROFILES, Direction } from '@flux';
-import type { WorldGenerationResult, WorldVertex } from './types';
+import type { Place, Exits, EcosystemURN, Biome, PlaceURN } from '@flux';
+import { EntityType, Direction } from '@flux';
+import type { WorldGenerationResult, WorldVertex, WorldGenerationConfig } from './types';
+
+export type WorldExportMetadata = {
+  version: string;
+  ts: number;
+  config: WorldGenerationConfig;
+}
 
 // Helper function to extract biome from ecosystem URN
 function getBiomeFromURN(ecosystemURN: EcosystemURN): Biome {
@@ -15,217 +21,182 @@ function getBiomeFromURN(ecosystemURN: EcosystemURN): Biome {
 }
 
 /**
- * Generate Place URN from ecosystem and coordinates
- * Format: flux:place:biome:x:y
+ * Generates the front matter line for the JSONL export containing generation parameters
  */
-export function generatePlaceURN(ecosystemURN: EcosystemURN, coordinates: [number, number]): PlaceURN {
-  const [x, y] = coordinates;
-  // Extract biome from ecosystem URN (e.g., "flux:eco:steppe:arid" -> "steppe")
-  const biome = getBiomeFromURN(ecosystemURN);
-  return `flux:place:${biome}:${x}:${y}`;
+function generateFrontMatter(
+  world: WorldGenerationResult,
+  now = Date.now(),
+): string {
+  const metadata: WorldExportMetadata = {
+    version: world.version,
+    ts: now,
+    config: world.config
+  };
+  return JSON.stringify(metadata);
 }
 
 /**
- * Generate human-readable name for a place
+ * Generate a URN for a place based on its ecosystem and coordinates
+ */
+export function generatePlaceURN(ecosystem: EcosystemURN, coordinates: [number, number]): PlaceURN {
+  const [x, y] = coordinates;
+  const biome = getBiomeFromURN(ecosystem);
+  return `flux:place:${biome}:${x}:${y}` as PlaceURN;
+}
+
+/**
+ * Generate a descriptive name for a place based on its vertex properties
  */
 export function generatePlaceName(vertex: WorldVertex): string {
-  // Extract biome from ecosystem URN
   const biome = getBiomeFromURN(vertex.ecosystem);
-  const ecosystemNames = {
-    'steppe': 'Steppe',
-    'grassland': 'Grassland',
-    'forest': 'Forest',
-    'mountain': 'Mountain',
-    'jungle': 'Jungle',
-    'marsh': 'Marsh'
-  };
+  const isOrigin = vertex.isOrigin;
 
-  const baseName = ecosystemNames[biome as keyof typeof ecosystemNames];
-
-  // Add directional context
-  if (vertex.gridX === 0) {
-    return `${baseName} Origin`;
+  if (isOrigin) {
+    return "Home base";
   }
 
-  // Add descriptive modifiers based on position
-  const modifiers = [
-    'Northern', 'Southern', 'Eastern', 'Western',
-    'Upper', 'Lower', 'Deep', 'High',
-    'Remote', 'Central', 'Outer', 'Inner'
-  ];
+  const biomeNames = {
+    steppe: ["Windswept Plains", "Arid Steppes", "Rolling Plains"],
+    grassland: ["Verdant Fields", "Grassy Meadows", "Open Plains"],
+    forest: ["Dense Woods", "Ancient Forest", "Shaded Grove"],
+    mountain: ["Rocky Heights", "Mountain Pass", "Craggy Peaks"],
+    jungle: ["Thick Jungle", "Dense Rainforest", "Tropical Grove"],
+    marsh: ["Murky Wetlands", "Misty Marsh", "Foggy Swamp"]
+  };
 
-  const modifier = modifiers[vertex.id.length % modifiers.length];
-  return `${modifier} ${baseName}`;
+  const names = biomeNames[biome] || ["Unknown Region"];
+  const index = Math.abs(vertex.x * vertex.y) % names.length;
+  return names[index];
 }
 
 /**
- * Generate descriptive text for a place
+ * Generate a descriptive description for a place based on its vertex properties
  */
 export function generatePlaceDescription(vertex: WorldVertex): string {
   const biome = getBiomeFromURN(vertex.ecosystem);
+  const isOrigin = vertex.isOrigin;
 
-  const descriptions = {
-    'steppe': [
-      'A vast expanse of grassland stretches to the horizon.',
-      'Wind-swept plains dotted with hardy shrubs.',
-      'Rolling hills covered in golden grass.',
-      'An open prairie under an endless sky.',
-      'Dry grassland with scattered wildflowers.'
-    ],
-    'grassland': [
-      'Lush green meadows sway in the breeze.',
-      'Rich farmland with fertile soil.',
-      'Temperate plains alive with wildlife.',
-      'Rolling hills carpeted in emerald grass.',
-      'A pastoral landscape of gentle slopes.'
-    ],
-    'forest': [
-      'Towering trees form a verdant canopy overhead.',
-      'Ancient woods filled with dappled sunlight.',
-      'Dense woodland teeming with life.',
-      'A cathedral of mighty oaks and elms.',
-      'Misty forest paths wind between massive trunks.'
-    ],
-    'mountain': [
-      'Jagged peaks pierce the clouds above.',
-      'Rocky crags and steep mountain slopes.',
-      'Alpine terrain with treacherous paths.',
-      'Windswept heights overlooking the world below.',
-      'Barren stone faces and narrow ledges.'
-    ],
-    'jungle': [
-      'Thick vines and lush foliage block the sun.',
-      'Humid air hangs heavy in the dense undergrowth.',
-      'Exotic birds call from the tangled canopy.',
-      'Steam rises from the rich jungle floor.',
-      'Massive trees draped in hanging moss.'
-    ],
-    'marsh': [
-      'Murky waters reflect the cloudy sky.',
-      'Cattails and reeds sway in the wetland breeze.',
-      'Soggy ground squelches underfoot.',
-      'Mist rises from the stagnant pools.',
-      'Water lilies float on the dark surface.'
-    ]
-  };
-
-  const options = descriptions[biome as keyof typeof descriptions];
-  const baseDescription = options[vertex.id.length % options.length];
-
-  // Add contextual details based on connections
-  let contextualDetails = '';
-
-  // Add flow context if near water or rivers
-  if (vertex.connections.length > 2) {
-    contextualDetails += ' Multiple paths converge here.';
-  } else if (vertex.connections.length === 1) {
-    contextualDetails += ' This appears to be a dead end.';
+  if (isOrigin) {
+    return "The home base of the player. This is the starting point for all players.";
   }
 
-  return baseDescription + contextualDetails;
+  const biomeDescriptions = {
+    steppe: "Dry grasslands stretch endlessly toward the horizon.",
+    grassland: "Lush grass sways gently in the breeze.",
+    forest: "Ancient trees tower overhead, their branches forming a dense canopy.",
+    mountain: "Jagged rocks and steep cliffs dominate the landscape.",
+    jungle: "Thick vegetation and exotic plants fill every direction.",
+    marsh: "Mist hangs over the waterlogged ground."
+  };
+
+  return biomeDescriptions[biome] || "An unexplored region awaits.";
 }
 
 /**
- * Convert WorldVertex connections to Place exits
+ * Convert vertex connections to place exits
  */
 export function convertVertexExitsToPlaceExits(vertex: WorldVertex, world: WorldGenerationResult): Exits {
   const exits: Exits = {};
 
+  // Map from angle to cardinal direction
+  const angleToDirection: Record<number, Direction> = {
+    0: Direction.EAST,
+    45: Direction.NORTHEAST,
+    90: Direction.NORTH,
+    135: Direction.NORTHWEST,
+    180: Direction.WEST,
+    225: Direction.SOUTHWEST,
+    270: Direction.SOUTH,
+    315: Direction.SOUTHEAST,
+    [-45]: Direction.SOUTHEAST,
+    [-90]: Direction.SOUTH,
+    [-135]: Direction.SOUTHWEST,
+    [-180]: Direction.WEST
+  };
+
   // Find all edges connected to this vertex
-  const connectedEdges = world.edges.filter(edge =>
-    edge.fromVertexId === vertex.id || edge.toVertexId === vertex.id
+  const connectedEdges = world.edges.filter(
+    edge => edge.fromVertexId === vertex.id || edge.toVertexId === vertex.id
   );
 
-  connectedEdges.forEach(edge => {
-    const isFromVertex = edge.fromVertexId === vertex.id;
-    const otherVertexId = isFromVertex ? edge.toVertexId : edge.fromVertexId;
-    const otherVertex = world.vertices.find(v => v.id === otherVertexId);
+  for (const edge of connectedEdges) {
+    const isFrom = edge.fromVertexId === vertex.id;
+    const connectedId = isFrom ? edge.toVertexId : edge.fromVertexId;
+    const connectedVertex = world.vertices.find(v => v.id === connectedId);
 
-    if (!otherVertex) return;
+    if (!connectedVertex) continue;
 
-    // Calculate direction from current vertex to other vertex
-    const dx = otherVertex.gridX - vertex.gridX;
-    const dy = otherVertex.gridY - vertex.gridY;
+    // Calculate angle between vertices
+    const dx = connectedVertex.x - vertex.x;
+    const dy = connectedVertex.y - vertex.y;
+    const angle = Math.round(Math.atan2(dy, dx) * 180 / Math.PI / 45) * 45;
+    const direction = angleToDirection[angle];
 
-    // Map to cardinal/diagonal directions
-    let direction: Direction;
-    if (dx === 0 && dy === 1) direction = Direction.NORTH;
-    else if (dx === 1 && dy === 1) direction = Direction.NORTHEAST;
-    else if (dx === 1 && dy === 0) direction = Direction.EAST;
-    else if (dx === 1 && dy === -1) direction = Direction.SOUTHEAST;
-    else if (dx === 0 && dy === -1) direction = Direction.SOUTH;
-    else if (dx === -1 && dy === -1) direction = Direction.SOUTHWEST;
-    else if (dx === -1 && dy === 0) direction = Direction.WEST;
-    else if (dx === -1 && dy === 1) direction = Direction.NORTHWEST;
-    else direction = Direction.UNKNOWN;
+    if (!direction) continue;
 
-    const targetUrn = generatePlaceURN(otherVertex.ecosystem, [otherVertex.x, otherVertex.y]);
+    const directionKey = direction.toLowerCase() as keyof Exits;
 
-    exits[direction] = {
-      direction: direction,
-      label: `${direction.charAt(0).toUpperCase() + direction.slice(1)} Path`,
-      to: targetUrn
+    // Generate proper PlaceURN for the connected vertex
+    const targetURN = connectedVertex.isOrigin
+      ? 'flux:place:origin' as PlaceURN
+      : generatePlaceURN(connectedVertex.ecosystem, [connectedVertex.x, connectedVertex.y]);
+
+    exits[directionKey] = {
+      direction: directionKey,
+      label: `${direction.charAt(0).toUpperCase() + direction.slice(1).toLowerCase()} Path`,
+      to: targetURN
     };
-  });
+  }
 
   return exits;
 }
 
 /**
- * Generate simple weather using midpoint values from ECOLOGICAL_PROFILES
- */
-export function generateSimpleWeather(vertex: WorldVertex): Weather {
-  const ecology = ECOLOGICAL_PROFILES[vertex.ecosystem];
-
-  // Calculate midpoint values from ecological profile ranges
-  const temperature = (ecology.temperature[0] + ecology.temperature[1]) / 2;
-  const pressure = (ecology.pressure[0] + ecology.pressure[1]) / 2;
-  const humidity = (ecology.humidity[0] + ecology.humidity[1]) / 2;
-
-  // Simple derived values based on fundamentals
-  const precipitation = humidity > 70 ? (humidity - 70) * 0.2 : 0; // mm/hour
-  const ppfd = temperature > 0 ? 800 + (temperature * 10) : 200; // μmol photons m⁻² s⁻¹
-  const clouds = humidity > 50 ? (humidity - 50) * 1.5 : 10; // %
-
-  // Generate deterministic timestamp based on vertex position
-  const baseTimestamp = 1699123456789;
-  const positionSeed = vertex.x * 1000 + vertex.y;
-  const ts = baseTimestamp + (positionSeed * 3600000);
-
-  return {
-    temperature: Math.round(temperature * 10) / 10,
-    pressure: Math.round(pressure * 10) / 10,
-    humidity: Math.round(humidity * 10) / 10,
-    precipitation: Math.round(precipitation * 100) / 100,
-    ppfd: Math.round(ppfd),
-    clouds: Math.round(Math.min(100, clouds)),
-    fog: 0,
-    ts
-  };
-}
-
-/**
- * Export world as JSONL string
+ * Export world as JSONL string with special handling for origin URN
  */
 export function exportWorldToJSONL(world: WorldGenerationResult): string {
+  // First, identify the origin vertex
+  const originVertex = world.vertices.find(v => v.isOrigin);
+  if (!originVertex) {
+    throw new Error('No origin vertex found in world - required for MUD server compatibility');
+  }
+
+  // Generate the original origin URN to map from old to new
+  const originalOriginURN = generatePlaceURN(originVertex.ecosystem, [originVertex.x, originVertex.y]);
+  const newOriginURN = 'flux:place:origin' as PlaceURN;
+
+  console.log(`Mapping origin place: ${originalOriginURN} → ${newOriginURN}`);
+
+  // Create Place objects for all vertices
   const places = world.vertices.map(vertex => {
     const coordinates: [number, number] = [vertex.x, vertex.y];
+    const isOrigin = vertex.isOrigin;
+
+    // Generate the place ID - special case for origin
+    const placeId = isOrigin ? newOriginURN : generatePlaceURN(vertex.ecosystem, coordinates);
+
+    // Store the generated URN in the vertex for exit reference
+    vertex.placeId = placeId;
+
     const place: Place = {
       type: EntityType.PLACE,
-      id: generatePlaceURN(vertex.ecosystem, coordinates),
+      id: placeId,
       name: generatePlaceName(vertex),
       description: generatePlaceDescription(vertex),
       exits: convertVertexExitsToPlaceExits(vertex, world),
       entities: {},
       resources: { ts: Date.now(), nodes: {} },
-      ecosystem: vertex.ecosystem, // Use the URN directly
-      weather: generateSimpleWeather(vertex),
-      coordinates: coordinates
-    };
+      ecosystem: vertex.ecosystem,
+      coordinates: coordinates,
+    } as unknown as Place; // We are intentionally leaving out some fields
     return place;
   });
 
-  return places.map(place => JSON.stringify(place)).join('\n');
+  // Generate front matter as first line
+  const frontMatter = generateFrontMatter(world);
+
+  // Convert places to JSONL, with front matter as first line
+  return frontMatter + '\n' + places.map(place => JSON.stringify(place)).join('\n');
 }
 
 /**
