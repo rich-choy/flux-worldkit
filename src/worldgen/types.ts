@@ -1,15 +1,13 @@
 import type { EcosystemURN, PlaceURN } from '@flux';
-import { GOLDEN_RATIO } from '@flux';
 
 /**
  * Types for Continuous River Flow + Gaussian Ecosystem Dithering Worldgen System
  * Uses Golden Ratio bleeding proportions for natural ecosystem transitions
  */
 
-// Dithering constants using Golden Ratio
-export const BLEEDING_DISTANCE = GOLDEN_RATIO;
-export const PURE_RATIO = 1 - GOLDEN_RATIO;
-export const TRANSITION_RATIO = GOLDEN_RATIO;
+// Dithering constants for 50-50 split between pure and transition zones
+export const PURE_RATIO = 0.5;
+export const TRANSITION_RATIO = 0.5;
 
 // Complete ecosystem URN progression (West to East)
 export const ECOSYSTEM_URNS = [

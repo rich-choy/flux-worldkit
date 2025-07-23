@@ -1,160 +1,92 @@
-# Worldgen JSONL Import/Export System
+# FSP: PlaceGraph Spatial Indexing and Connectivity Rules
 
-You are working on the **JSONL import/export functionality** for a MUD world generation system. The system must ensure that each place has a unique URN, as these URNs are used by the MUD server to create MUC Light rooms for spatial communication.
+## 🎯 **Core Principles**
 
-## Critical Requirements
+1. **Grid-Based Spacing**
+   - Each place occupies a square grid cell of size `placeSpacing × placeSpacing`
+   - Places can connect to neighbors within a radius of `placeSpacing * 2 * √2`
+   - This allows connections up to 2 grid cells away in any direction
 
-### 1. **Unique Place URNs**
-- Each place MUST have a unique URN
-- No duplicate places are allowed in the JSONL file
-- URN format must be either:
-  - Origin: `flux:place:origin`
-  - Regular: `flux:place:<ecosystem>:<x>:<y>`
-- Coordinates in URN must match the `coordinates` array
-- Validation must happen during both export and import
+2. **Ecosystem-Specific Connectivity**
+   - Mountains prefer vertical (N/S) connections
+   - Other ecosystems prefer horizontal (E/W) connections
+   - Target connectivity varies by ecosystem:
+     - Steppe/Grassland: 3.0 (high connectivity for open terrain)
+     - Forest: 2.0 (moderate connectivity)
+     - Mountain/Jungle: 1.5 (lower connectivity due to terrain)
+     - Marsh: 1.0 (lowest connectivity due to water barriers)
 
-### 2. **MUD Server Integration**
-- Each place URN maps to exactly one MUC Light room
-- Duplicate URNs will cause MUC room creation failures
-- The MUD server assumes URN uniqueness for room management
+3. **Connection Rules**
+   - Connections must be at 45-degree angles (0°, 45°, 90°, 135°, 180°, 225°, 270°, 315°)
+   - Distance is calculated using Euclidean distance
+   - Prefer closer neighbors when multiple options exist
+   - Never remove existing connections, only add new ones
 
-## Implementation Components
+## 🔬 **Implementation Details**
 
-### 1. **Place Uniqueness Validation**
+### Connection Process
+1. Sort ecosystems by target connectivity (highest first)
+2. For each ecosystem:
+   - Find vertices with fewest connections
+   - Look for neighbors within expanded radius
+   - Prefer ecosystem-specific directions
+   - Add connections until target connectivity reached
+
+### Distance Calculations
 ```typescript
-function validatePlaceUniqueness(places: Place[]): void {
-  const seenUrns = new Map<string, Place>();
-  const duplicates: string[] = [];
-
-  for (const place of places) {
-    if (seenUrns.has(place.id)) {
-      duplicates.push(place.id);
-      const existing = seenUrns.get(place.id)!;
-      console.error('Duplicate place found:', {
-        urn: place.id,
-        first: {
-          coordinates: existing.coordinates,
-          exits: Object.keys(existing.exits || {})
-        },
-        second: {
-          coordinates: place.coordinates,
-          exits: Object.keys(place.exits || {})
-        }
-      });
-    } else {
-      seenUrns.set(place.id, place);
-    }
-  }
-
-  if (duplicates.length > 0) {
-    throw new Error(
-      `Duplicate places found: ${duplicates.join(', ')}. ` +
-      'Each place must have a unique URN for MUC room creation.'
-    );
-  }
-}
+const maxRadius = gridSize * 2 * Math.sqrt(2);
+const distance = Math.sqrt(dx * dx + dy * dy);
+const angle = Math.atan2(dy, dx) * (180 / Math.PI);
 ```
 
-### 2. **Export Validation**
+### Direction Preferences
 ```typescript
-function exportWorldToJSONL(world: WorldGenerationResult): string[] {
-  const places = world.vertices.map(vertexToPlace);
+// Mountains prefer vertical connections
+const mountainDirections = [Direction.NORTH, Direction.SOUTH];
 
-  // Validate before export
-  validatePlaceUniqueness(places);
+// Other ecosystems prefer horizontal connections
+const defaultDirections = [Direction.EAST, Direction.WEST];
 
-  return places.map(place => JSON.stringify(place));
-}
+// Fall back to diagonals if preferred directions unavailable
+const diagonalDirections = [
+  Direction.NORTHEAST,
+  Direction.SOUTHEAST,
+  Direction.SOUTHWEST,
+  Direction.NORTHWEST
+];
 ```
 
-### 3. **Import Validation**
-```typescript
-function parseJSONLFile(fileContent: string): Place[] {
-  const lines = fileContent.trim().split('\n').filter(line => line.trim());
-  const places = lines.map((line, index) => {
-    try {
-      return JSON.parse(line) as Place;
-    } catch (error) {
-      throw new Error(`Invalid JSONL line ${index + 1}: ${error.message}`);
-    }
-  });
+## 🎯 **Validation Criteria**
 
-  // Validate after parsing
-  validatePlaceUniqueness(places);
+1. **Connectivity Targets**
+   - Each ecosystem should reach its target connectivity
+   - Or get as close as possible within distance constraints
 
-  return places;
-}
-```
+2. **Direction Preferences**
+   - Mountain regions should show predominantly N/S connections
+   - Other regions should show predominantly E/W connections
+   - Diagonal connections should only appear when necessary
 
-### 4. **Coordinate Validation**
-```typescript
-function validatePlaceCoordinates(place: Place): void {
-  const isOrigin = place.id === 'flux:place:origin';
+3. **Distance Constraints**
+   - No connections beyond `gridSize * 2 * √2`
+   - Prefer closer neighbors over distant ones
+   - All angles must be multiples of 45 degrees
 
-  if (!isOrigin) {
-    const urnParts = place.id.split(':');
-    if (urnParts.length !== 5) {
-      throw new Error(`Invalid place URN format: ${place.id}`);
-    }
+4. **Graph Properties**
+   - Graph should remain connected
+   - No duplicate connections
+   - No self-connections
+   - Bidirectional connections only
 
-    const [x, y] = place.coordinates;
-    const urnX = parseInt(urnParts[3]);
-    const urnY = parseInt(urnParts[4]);
+## 🔄 **Integration with Weather System**
 
-    if (x !== urnX || y !== urnY) {
-      throw new Error(
-        `Coordinate mismatch in ${place.id}: ` +
-        `URN coordinates [${urnX}, ${urnY}] ` +
-        `don't match actual coordinates [${x}, ${y}]`
-      );
-    }
-  }
-}
-```
+The expanded connection radius ensures:
+1. Mountains can influence places up to 2 grid cells away
+2. Weather effects can propagate through the graph naturally
+3. No artificial barriers created by too-strict connectivity rules
 
-## Error Messages
-
-Provide clear error messages that help identify and fix issues:
-
-```typescript
-// Example error for duplicate places
-"Duplicate places found: flux:place:mountain:21200:200. Each place must have a unique URN for MUC room creation."
-
-// Example error for coordinate mismatch
-"Coordinate mismatch in flux:place:forest:1000:2000: URN coordinates [1000, 2000] don't match actual coordinates [1000, 2500]"
-```
-
-## Testing Requirements
-
-1. **Duplicate Detection**
-   - Test with known duplicate places
-   - Verify error messages are helpful
-   - Check both export and import validation
-
-2. **Coordinate Validation**
-   - Test places with mismatched coordinates
-   - Verify URN parsing is correct
-   - Test special handling of origin place
-
-3. **Round-trip Testing**
-   - Export → Import → Export should preserve uniqueness
-   - No duplicates should be created during conversion
-
-## Success Criteria
-
-- ✅ No duplicate places in exported JSONL
-- ✅ Import fails fast on duplicate detection
-- ✅ Clear error messages for fixing issues
-- ✅ Coordinates always match URN values
-- ✅ Origin place handled correctly
-- ✅ MUD server can reliably create rooms
-
-## Implementation Priority
-
-1. Add uniqueness validation to both export and import
-2. Add coordinate validation
-3. Improve error messages
-4. Add test cases for duplicates
-5. Document validation requirements
-
-Focus on preventing duplicate places to ensure reliable MUC room creation in the MUD server.
+This implementation balances:
+- Natural terrain-based connectivity patterns
+- Sufficient graph density for weather propagation
+- Geometric constraints for clean visualization
+- Performance considerations in pathfinding

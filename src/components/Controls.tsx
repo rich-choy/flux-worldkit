@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState } from 'react';
 import type { WorldGenerationConfig, WorldGenerationResult } from '../worldgen/types';
 import { useWorldIO } from '../hooks/useWorldIO';
 import { FileImportModal } from './FileImportModal';
@@ -36,18 +36,7 @@ export const Controls: React.FC<ControlsProps> = ({
   const [toasts, setToasts] = useState<Toast[]>([]);
 
   // Use the world IO hook
-  const { exportWorld, importWorld, isExporting, isImporting, error, clearError } = useWorldIO();
-
-  // Calculate grid dimensions for display
-  const gridDimensions = useMemo(() => {
-    const placeSpacing = 300; // 300m spacing
-    const placeMargin = 200; // 200m margin
-    const worldWidthMeters = worldWidthKm * 1000;
-    const worldHeightMeters = worldHeightKm * 1000;
-    const gridWidth = Math.floor((worldWidthMeters - 2 * placeMargin) / placeSpacing);
-    const gridHeight = Math.floor((worldHeightMeters - 2 * placeMargin) / placeSpacing);
-    return { gridWidth, gridHeight };
-  }, [worldWidthKm, worldHeightKm]);
+  const { exportWorld, importWorld, isExporting, isImporting, clearError } = useWorldIO();
 
   const showToast = (type: 'success' | 'error', message: string) => {
     const id = Date.now().toString();

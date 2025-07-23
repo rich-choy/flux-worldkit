@@ -22,7 +22,6 @@ export type {
 
 } from './types';
 export {
-  BLEEDING_DISTANCE,
   PURE_RATIO,
   TRANSITION_RATIO
 } from './types';
