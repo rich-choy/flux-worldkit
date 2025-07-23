@@ -192,6 +192,33 @@ export function exportWorldToJSONL(world: WorldGenerationResult): string {
     return place;
   });
 
+  // Validate: No duplicate places
+  const placesByUrn = new Map<string, Place[]>();
+  places.forEach(place => {
+    if (!placesByUrn.has(place.id)) {
+      placesByUrn.set(place.id, []);
+    }
+    placesByUrn.get(place.id)!.push(place);
+  });
+
+  // Find any URNs with more than one place
+  const duplicates = Array.from(placesByUrn.entries())
+    .filter(([_, places]) => places.length > 1);
+
+  if (duplicates.length > 0) {
+    const duplicateDetails = duplicates.map(([urn, places]) => {
+      const details = places.map((place, i) =>
+        `    Place ${i + 1}: coordinates=[${place.coordinates.join(', ')}], exits=${Object.keys(place.exits).join(', ')}`
+      ).join('\n');
+      return `  ${urn}:\n${details}`;
+    }).join('\n');
+
+    throw new Error(
+      'Duplicate places found - each place must have a unique URN:\n' +
+      duplicateDetails
+    );
+  }
+
   // Generate front matter as first line
   const frontMatter = generateFrontMatter(world);
 

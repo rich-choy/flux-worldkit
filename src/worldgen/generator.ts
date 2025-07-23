@@ -16,6 +16,29 @@ import type {
 } from './types';
 import { PURE_RATIO, TRANSITION_RATIO, ECOSYSTEM_URNS } from './types';
 import type { EcosystemURN } from '@flux';
+import { Direction } from '@flux';
+import type { PlaceURN } from '@flux';
+import { generatePlaceURN } from './export';
+
+// Add type definitions at the top
+interface ConnectivityState {
+  vertices: WorldVertex[];
+  edges: RiverEdge[];
+  stats: {
+    connectivity: Record<EcosystemURN, number>;
+    edgesAdded: number;
+    edgesRemoved: number;
+    iteration: number;
+    improvement: number;
+  };
+}
+
+interface ConnectivityAction {
+  type: 'ADD_EDGE' | 'REMOVE_EDGE' | 'REVERT_CHANGES';
+  ecosystem?: EcosystemURN;
+  fromVertex?: WorldVertex;
+  toVertex?: WorldVertex;
+}
 
 // Default world configuration
 const DEFAULT_CONFIG: Required<WorldGenerationConfig> = {
@@ -71,7 +94,7 @@ export function generateWorld(config: WorldGenerationConfig = {}): WorldGenerati
 
   // PHASE 3.5: Adjust connectivity per ecosystem
   console.log('\n🔗 Phase 3.5: Adjusting connectivity per ecosystem...');
-  const { connectivityVertices, adjustedEdges } = adjustEcosystemConnectivity(ditheredVertices, processedEdges, rng);
+  const { connectivityVertices, adjustedEdges } = adjustEcosystemConnectivity(ditheredVertices, processedEdges, rng, spatialMetrics);
 
   // PHASE 3.6: Apply eastern marsh zone
   console.log('\n🏞️  Phase 3.6: Applying eastern marsh zone...');
@@ -820,12 +843,323 @@ function applyEasternMarshZone(vertices: WorldVertex[]): {
 }
 
 /**
- * PHASE 3.5: Adjust ecosystem connectivity to biological targets
+ * Memoized helper to calculate ecosystem connectivity
+ */
+const createConnectivityCalculator = () => {
+  const cache = new Map<string, Record<EcosystemURN, number>>();
+
+  return {
+    calculate: (vertices: WorldVertex[]): Record<EcosystemURN, number> => {
+      // Create cache key from vertex connections
+      const cacheKey = vertices.map(v => `${v.id}:[${v.connections.sort().join(',')}]`).join('|');
+
+      if (cache.has(cacheKey)) {
+        return cache.get(cacheKey)!;
+      }
+
+      const result = calculateEcosystemConnectivity(vertices);
+      cache.set(cacheKey, result);
+      return result;
+    },
+
+    // Invalidate cache when graph structure changes significantly
+    invalidate: () => cache.clear()
+  };
+};
+
+/**
+ * Memoized helper to find potential neighbors for a vertex
+ */
+const createNeighborFinder = () => {
+  const cache = new Map<string, WorldVertex[]>();
+
+  return (vertex: WorldVertex, vertices: WorldVertex[], maxDistance: number = 1): WorldVertex[] => {
+    const cacheKey = `${vertex.id}:${maxDistance}`;
+
+    if (cache.has(cacheKey)) {
+      return cache.get(cacheKey)!;
+    }
+
+    const neighbors = vertices.filter(v =>
+      v.id !== vertex.id &&
+      !vertex.connections.includes(v.id) &&
+      Math.abs(v.x - vertex.x) <= maxDistance &&
+      Math.abs(v.y - vertex.y) <= maxDistance
+    );
+
+    cache.set(cacheKey, neighbors);
+    return neighbors;
+  };
+};
+
+/**
+ * Memoized score calculator
+ */
+const createScoreCalculator = () => {
+  const cache = new Map<string, number>();
+
+  return (current: Record<EcosystemURN, number>, target: Record<EcosystemURN, number>): number => {
+    const cacheKey = JSON.stringify({ current, target });
+
+    if (cache.has(cacheKey)) {
+      return cache.get(cacheKey)!;
+    }
+
+    const deltas = Object.entries(target).map(([eco, targetValue]) => {
+      const currentValue = current[eco as EcosystemURN] || 0;
+      return Math.abs(targetValue - currentValue);
+    });
+
+    const avgDelta = deltas.reduce((sum, d) => sum + d, 0) / deltas.length;
+    const score = 1 / (1 + avgDelta);
+
+    cache.set(cacheKey, score);
+    return score;
+  };
+};
+
+/**
+ * Reducer function that iteratively improves ecosystem connectivity
+ */
+function connectivityReducer(
+  state: ConnectivityState,
+  action: ConnectivityAction,
+  rng: () => number,
+  calculators: {
+    connectivity: ReturnType<typeof createConnectivityCalculator>;
+    neighbors: ReturnType<typeof createNeighborFinder>;
+    score: ReturnType<typeof createScoreCalculator>;
+  }
+): ConnectivityState {
+  switch (action.type) {
+    case 'ADD_EDGE': {
+      const { ecosystem, fromVertex, toVertex } = action;
+      if (!ecosystem || !fromVertex || !toVertex) return state;
+
+      // Calculate edge properties
+      const dx = toVertex.x - fromVertex.x;
+      const dy = toVertex.y - fromVertex.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+
+      // Determine flow direction
+      let flowDirection: RiverEdge['flowDirection'] = 'diagonal';
+      if (angle === 0) flowDirection = 'eastward';
+      else if (angle === 90) flowDirection = 'northward';
+      else if (angle === 180) flowDirection = 'westward';
+      else if (angle === 270) flowDirection = 'southward';
+
+      // Create new edge
+      const newEdge: RiverEdge = {
+        id: `${fromVertex.id}->${toVertex.id}`,
+        fromVertexId: fromVertex.id,
+        toVertexId: toVertex.id,
+        flowDirection,
+        distance,
+        angle
+      };
+
+      // Update connections
+      const newVertices = state.vertices.map(v => {
+        if (v.id === fromVertex.id) {
+          return {
+            ...v,
+            connections: [...v.connections, toVertex.id]
+          };
+        }
+        if (v.id === toVertex.id) {
+          return {
+            ...v,
+            connections: [...v.connections, fromVertex.id]
+          };
+        }
+        return v;
+      });
+
+      // Calculate new connectivity using memoized calculator
+      const connectivity = calculators.connectivity.calculate(newVertices);
+
+      return {
+        vertices: newVertices,
+        edges: [...state.edges, newEdge],
+        stats: {
+          ...state.stats,
+          edgesAdded: state.stats.edgesAdded + 1,
+          connectivity
+        }
+      };
+    }
+
+    case 'REMOVE_EDGE': {
+      const { fromVertex, toVertex } = action;
+      if (!fromVertex || !toVertex) return state;
+
+      // Remove edge
+      const newEdges = state.edges.filter(e =>
+        !(e.fromVertexId === fromVertex.id && e.toVertexId === toVertex.id) &&
+        !(e.fromVertexId === toVertex.id && e.toVertexId === fromVertex.id)
+      );
+
+      // Update connections
+      const newVertices = state.vertices.map(v => {
+        if (v.id === fromVertex.id) {
+          return {
+            ...v,
+            connections: v.connections.filter(c => c !== toVertex.id)
+          };
+        }
+        if (v.id === toVertex.id) {
+          return {
+            ...v,
+            connections: v.connections.filter(c => c !== fromVertex.id)
+          };
+        }
+        return v;
+      });
+
+      // Calculate new connectivity using memoized calculator
+      const connectivity = calculators.connectivity.calculate(newVertices);
+
+      return {
+        vertices: newVertices,
+        edges: newEdges,
+        stats: {
+          ...state.stats,
+          edgesRemoved: state.stats.edgesRemoved + 1,
+          connectivity
+        }
+      };
+    }
+
+    case 'REVERT_CHANGES': {
+      // Invalidate caches on revert
+      calculators.connectivity.invalidate();
+
+      return {
+        ...state,
+        stats: {
+          ...state.stats,
+          improvement: 0
+        }
+      };
+    }
+
+    default:
+      return state;
+  }
+}
+
+/**
+ * Get the cardinal direction between two vertices
+ */
+function getCardinalDirection(from: WorldVertex, to: WorldVertex): Direction {
+  const dx = to.x - from.x;
+  const dy = to.y - from.y;
+
+  // For diagonal directions, ensure we have exact 45-degree angles
+  const isDiagonal = Math.abs(dx) === Math.abs(dy);
+
+  // Pure cardinal directions
+  if (dx === 0 && dy > 0) return Direction.NORTH;
+  if (dx === 0 && dy < 0) return Direction.SOUTH;
+  if (dy === 0 && dx > 0) return Direction.EAST;
+  if (dy === 0 && dx < 0) return Direction.WEST;
+
+  // Diagonal directions (exactly 45 degrees)
+  if (isDiagonal) {
+    if (dx > 0 && dy > 0) return Direction.NORTHEAST;
+    if (dx > 0 && dy < 0) return Direction.SOUTHEAST;
+    if (dx < 0 && dy > 0) return Direction.NORTHWEST;
+    if (dx < 0 && dy < 0) return Direction.SOUTHWEST;
+  }
+
+  return Direction.UNKNOWN;
+}
+
+/**
+ * Convert Direction to RiverEdge flow direction
+ */
+function directionToFlowDirection(direction: Direction): RiverEdge['flowDirection'] {
+  switch (direction) {
+    case Direction.NORTH: return 'northward';
+    case Direction.SOUTH: return 'southward';
+    case Direction.EAST: return 'eastward';
+    case Direction.WEST: return 'westward';
+    case Direction.NORTHEAST:
+    case Direction.NORTHWEST:
+    case Direction.SOUTHEAST:
+    case Direction.SOUTHWEST:
+      return 'diagonal';
+    default:
+      return 'diagonal';  // Default to diagonal for unknown directions
+  }
+}
+
+/**
+ * Find best neighbor for a vertex based on cardinal directions
+ */
+function findBestNeighbor(
+  vertex: WorldVertex,
+  candidates: WorldVertex[],
+  preferredDirections: Direction[],
+  gridSize: number
+): WorldVertex | undefined {
+  // Calculate maximum connection radius
+  const maxRadius = gridSize * 2 * Math.sqrt(2);
+
+  // Filter candidates by radius first
+  const inRangeNeighbors = candidates.filter(v => {
+    const dx = v.x - vertex.x;
+    const dy = v.y - vertex.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    return distance <= maxRadius;
+  });
+
+  // Group candidates by their direction from vertex
+  const byDirection = inRangeNeighbors.reduce((acc, candidate) => {
+    const direction = getCardinalDirection(vertex, candidate);
+    if (!acc[direction]) acc[direction] = [];
+    acc[direction].push(candidate);
+    return acc;
+  }, {} as Record<Direction, WorldVertex[]>);
+
+  // Try preferred directions first
+  for (const direction of preferredDirections) {
+    if (byDirection[direction]?.length > 0) {
+      // Choose closest neighbor in this direction
+      return byDirection[direction].sort((a, b) => {
+        const distA = Math.abs(a.x - vertex.x) + Math.abs(a.y - vertex.y);
+        const distB = Math.abs(b.x - vertex.x) + Math.abs(b.y - vertex.y);
+        return distA - distB;
+      })[0];
+    }
+  }
+
+  // If no preferred directions available, try exact diagonals
+  const diagonalDirections = [
+    Direction.NORTHEAST,
+    Direction.SOUTHEAST,
+    Direction.SOUTHWEST,
+    Direction.NORTHWEST
+  ];
+
+  for (const direction of diagonalDirections) {
+    if (byDirection[direction]?.length > 0) {
+      return byDirection[direction][0];  // Already sorted by distance above
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Adjusts ecosystem connectivity by adding edges until targets are met
  */
 function adjustEcosystemConnectivity(
   vertices: WorldVertex[],
   edges: RiverEdge[],
-  rng: () => number
+  rng: () => number,
+  spatialMetrics: SpatialMetrics
 ): {
   connectivityVertices: WorldVertex[],
   adjustedEdges: RiverEdge[],
@@ -839,70 +1173,108 @@ function adjustEcosystemConnectivity(
 } {
   console.log(`🔗 Adjusting ecosystem connectivity...`);
 
-      // Target connectivity per ecosystem
-    const TARGET_CONNECTIVITY = {
-      [ECOSYSTEM_URNS[0]]: 3.0, // steppe
-      [ECOSYSTEM_URNS[1]]: 3.0, // grassland
-      [ECOSYSTEM_URNS[2]]: 2.0, // forest
-      [ECOSYSTEM_URNS[3]]: 1.5, // mountain
-      [ECOSYSTEM_URNS[4]]: 2.0, // jungle
-      [ECOSYSTEM_URNS[5]]: 2.0  // marsh (shouldn't be used at this stage)
-    } as Record<EcosystemURN, number>;
+  // Target connectivity per ecosystem
+  const TARGET_CONNECTIVITY: Record<EcosystemURN, number> = {
+    'flux:eco:steppe:arid': 3.0,
+    'flux:eco:grassland:arid': 3.0,
+    'flux:eco:forest:arid': 2.0,
+    'flux:eco:mountain:arid': 1.5,
+    'flux:eco:jungle:tropical': 1.5,
+    'flux:eco:marsh:tropical': 1.0,
+  };
 
   // Create working copies
-  const workingVertices: WorldVertex[] = vertices.map(v => ({ ...v, connections: [...v.connections] }));
-  const workingEdges: RiverEdge[] = [...edges];
+  let workingVertices = vertices.map(v => ({
+    id: v.id,
+    placeId: v.isOrigin
+      ? 'flux:place:origin' as PlaceURN
+      : generatePlaceURN(v.ecosystem, [v.x, v.y]),
+    x: v.x,
+    y: v.y,
+    gridX: v.gridX,
+    gridY: v.gridY,
+    ecosystem: v.ecosystem,
+    isOrigin: v.isOrigin,
+    connections: [...v.connections],
+    metadata: v.metadata
+  }));
+  let workingEdges = [...edges];
+  let edgesAdded = 0;
 
-  // Calculate current connectivity per ecosystem
+  // Calculate initial connectivity
   const originalConnectivity = calculateEcosystemConnectivity(workingVertices);
   console.log(`🔗 Original connectivity:`, originalConnectivity);
 
-  let edgesAdded = 0;
-  let edgesRemoved = 0;
+  // Process each ecosystem in order of most connections needed
+  const ecosystems = Object.entries(TARGET_CONNECTIVITY)
+    .sort(([, a], [, b]) => b - a)
+    .map(([eco]) => eco as EcosystemURN);
 
-  // Process each ecosystem
-  for (const ecosystem of Object.keys(TARGET_CONNECTIVITY) as EcosystemURN[]) {
+  for (const ecosystem of ecosystems) {
+    const target = TARGET_CONNECTIVITY[ecosystem];
+    let current = calculateEcosystemConnectivity(workingVertices)[ecosystem] || 0;
+
+    // Get vertices for this ecosystem
     const ecosystemVertices = workingVertices.filter(v => v.ecosystem === ecosystem);
     if (ecosystemVertices.length === 0) continue;
 
-    const currentConnectivity = originalConnectivity[ecosystem] || 0;
-    const targetConnectivity = TARGET_CONNECTIVITY[ecosystem];
-    const delta = targetConnectivity - currentConnectivity;
+    console.log(`🔗 ${ecosystem}: ${current.toFixed(2)} → ${target}`);
 
-    console.log(`🔗 ${ecosystem}: ${currentConnectivity.toFixed(2)} → ${targetConnectivity} (Δ${delta.toFixed(2)})`);
+    // Add edges until we reach target or can't add more
+    while (current < target) {
+      // Find vertex with fewest connections
+      const vertex = ecosystemVertices
+        .sort((a, b) => a.connections.length - b.connections.length)[0];
 
-    if (delta > 0.2) {
-      // Need more connections - add edges
-      const edgesToAdd = Math.ceil(ecosystemVertices.length * delta / 2); // Divide by 2 since each edge adds 2 connections
-      edgesAdded += addEcosystemEdges(ecosystemVertices, workingVertices, workingEdges, edgesToAdd, rng);
-    } else if (delta < -0.2) {
-      // Need fewer connections - remove edges
-      const edgesToRemove = Math.ceil(ecosystemVertices.length * Math.abs(delta) / 2);
-      edgesRemoved += removeEcosystemEdges(ecosystemVertices, workingVertices, workingEdges, edgesToRemove, rng);
+      // Find potential neighbors within the expanded radius
+      const potentialNeighbors = workingVertices.filter(v =>
+        v.id !== vertex.id &&
+        !vertex.connections.includes(v.id)
+      );
+
+      // Prefer cardinal directions based on ecosystem
+      const preferredDirections = ecosystem === 'flux:eco:mountain:arid'
+        ? [Direction.NORTH, Direction.SOUTH] // Mountains prefer vertical connections
+        : [Direction.EAST, Direction.WEST];  // Other ecosystems prefer horizontal connections
+
+      // Find best neighbor based on preferred directions
+      const neighbor = findBestNeighbor(vertex, potentialNeighbors, preferredDirections, spatialMetrics.placeSpacing);
+      if (!neighbor) break;
+
+      // Calculate edge properties
+      const direction = getCardinalDirection(vertex, neighbor);
+      const flowDirection = directionToFlowDirection(direction);
+      const dx = neighbor.x - vertex.x;
+      const dy = neighbor.y - vertex.y;
+      const distance = Math.sqrt(dx * dx + dy * dy);
+      const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+
+      // Add edge
+      const newEdge: RiverEdge = {
+        id: `${vertex.id}->${neighbor.id}`,
+        fromVertexId: vertex.id,
+        toVertexId: neighbor.id,
+        flowDirection,
+        distance,
+        angle
+      };
+
+      // Update connections
+      vertex.connections.push(neighbor.id);
+      neighbor.connections.push(vertex.id);
+      workingEdges.push(newEdge);
+      edgesAdded++;
+
+      // Recalculate connectivity
+      current = calculateEcosystemConnectivity(workingVertices)[ecosystem] || 0;
     }
   }
 
-  // Verify graph connectivity after modifications
-  if (!verifyGraphConnectivity(workingVertices, workingEdges)) {
-        console.warn(`⚠️  Graph connectivity compromised, reverting changes`);
-    return {
-      connectivityVertices: vertices,
-      adjustedEdges: edges,
-      connectivityStats: {
-        originalConnectivity,
-        targetConnectivity: TARGET_CONNECTIVITY,
-        adjustedConnectivity: originalConnectivity,
-        edgesAdded: 0,
-        edgesRemoved: 0
-      }
-    };
-  }
-
   const adjustedConnectivity = calculateEcosystemConnectivity(workingVertices);
-  console.log(`🔗 Adjusted connectivity:`, adjustedConnectivity);
-  console.log(`🔗 Connectivity adjustment complete: +${edgesAdded} edges, -${edgesRemoved} edges`);
+  console.log(`\n🔗 Final connectivity:`, adjustedConnectivity);
+  console.log(`🔗 Connectivity adjustment complete: +${edgesAdded} edges`);
 
-    return {
+  return {
     connectivityVertices: workingVertices,
     adjustedEdges: workingEdges,
     connectivityStats: {
@@ -910,9 +1282,26 @@ function adjustEcosystemConnectivity(
       targetConnectivity: TARGET_CONNECTIVITY,
       adjustedConnectivity,
       edgesAdded,
-      edgesRemoved
+      edgesRemoved: 0  // We never remove edges
     }
   };
+}
+
+/**
+ * Calculate a score for how close current connectivity is to target
+ * Returns a value between 0 and 1, where 1 is perfect
+ */
+function calculateConnectivityScore(
+  current: Record<EcosystemURN, number>,
+  target: Record<EcosystemURN, number>
+): number {
+  const deltas = Object.entries(target).map(([eco, targetValue]) => {
+    const currentValue = current[eco as EcosystemURN] || 0;
+    return Math.abs(targetValue - currentValue);
+  });
+
+  const avgDelta = deltas.reduce((sum, d) => sum + d, 0) / deltas.length;
+  return 1 / (1 + avgDelta);  // Convert to 0-1 score where 1 is perfect
 }
 
 /**
