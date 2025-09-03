@@ -369,4 +369,108 @@ describe('River Flow Generation', () => {
       expect(invalidVertices.length).toBe(0);
     });
   });
+
+  it('should detect URN/ecosystem data integrity violations', () => {
+    // Use the exact parameters from .cursorrules.md that reproduce the issue
+    const config = {
+      worldWidthKm: 31,
+      worldHeightKm: 13,
+      branchingFactor: 0.6,
+      meanderingFactor: 0.5,
+      ditheringStrength: 0.5,
+      showZoneBoundaries: false,
+      showFlowDirection: false,
+      colorScheme: 'default' as const,
+      seed: 674288
+    };
+
+    const world = generateWorld(config);
+
+    // Helper function to extract biome from ecosystem URN
+    function getBiomeFromEcosystemURN(ecosystemURN: string): string {
+      return ecosystemURN.split(':')[2];
+    }
+
+    // Helper function to extract biome from place URN
+    function getBiomeFromPlaceURN(placeURN: string): string {
+      return placeURN.split(':')[2];
+    }
+
+    // Check for URN/ecosystem mismatches
+    const integrityViolations: Array<{
+      vertex: any,
+      urnBiome: string,
+      ecosystemBiome: string,
+      placeUrn: string,
+      ecosystem: string
+    }> = [];
+
+    world.vertices.forEach(vertex => {
+      // Skip origin vertex - it has a special URN by design
+      if (vertex.isOrigin) {
+        return;
+      }
+
+      const urnBiome = getBiomeFromPlaceURN(vertex.placeId);
+      const ecosystemBiome = getBiomeFromEcosystemURN(vertex.ecosystem);
+
+      if (urnBiome !== ecosystemBiome) {
+        integrityViolations.push({
+          vertex,
+          urnBiome,
+          ecosystemBiome,
+          placeUrn: vertex.placeId,
+          ecosystem: vertex.ecosystem
+        });
+      }
+    });
+
+    // Log detailed information about violations
+    console.log(`🔍 URN/Ecosystem Integrity Analysis:`);
+    console.log(`  Total vertices: ${world.vertices.length}`);
+    console.log(`  Integrity violations: ${integrityViolations.length}`);
+
+    if (integrityViolations.length > 0) {
+      console.log(`🚨 DEFECT REPRODUCED! Found ${integrityViolations.length} URN/ecosystem mismatches:`);
+
+      // Show first few violations as examples
+      const samplesToShow = Math.min(5, integrityViolations.length);
+      for (let i = 0; i < samplesToShow; i++) {
+        const violation = integrityViolations[i];
+        console.log(`  ${i + 1}. URN: ${violation.placeUrn} (claims "${violation.urnBiome}")`);
+        console.log(`     Ecosystem: ${violation.ecosystem} (actually "${violation.ecosystemBiome}")`);
+        console.log(`     Coordinates: (${violation.vertex.x}, ${violation.vertex.y})`);
+      }
+
+      // Group violations by type
+      const violationsByType = integrityViolations.reduce((acc, violation) => {
+        const key = `${violation.urnBiome} → ${violation.ecosystemBiome}`;
+        if (!acc[key]) acc[key] = [];
+        acc[key].push(violation);
+        return acc;
+      }, {} as Record<string, typeof integrityViolations>);
+
+      console.log(`🔍 Violation patterns:`);
+      Object.entries(violationsByType).forEach(([pattern, violations]) => {
+        console.log(`  ${pattern}: ${violations.length} cases`);
+      });
+
+      // Check for the specific jungle→forest mismatch mentioned in .cursorrules.md
+      const jungleForestViolations = integrityViolations.filter(v =>
+        v.urnBiome === 'jungle' && v.ecosystemBiome === 'forest'
+      );
+
+      if (jungleForestViolations.length > 0) {
+        console.log(`🎯 Found the specific jungle→forest violations mentioned in the bug report!`);
+        console.log(`  Count: ${jungleForestViolations.length}`);
+        jungleForestViolations.slice(0, 3).forEach((violation, i) => {
+          console.log(`  Example ${i + 1}: ${violation.placeUrn} → ${violation.ecosystem}`);
+        });
+      }
+    }
+
+    // This test SHOULD FAIL initially, proving the defect exists
+    // After we implement the fix, this assertion should pass
+    expect(integrityViolations.length).toBe(0); // This will fail and reproduce the defect
+  });
 });

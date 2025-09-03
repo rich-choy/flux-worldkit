@@ -100,9 +100,13 @@ export function generateWorld(config: WorldGenerationConfig = {}): WorldGenerati
   console.log('\n🏞️  Phase 3.6: Applying eastern marsh zone...');
   const { marshVertices } = applyEasternMarshZone(connectivityVertices);
 
+  // PHASE 3.7: Generate Place URNs after ecosystem finalization
+  console.log('\n🏗️  Phase 3.7: Generating Place URNs after ecosystem finalization...');
+  const finalVertices = generatePlaceURNsAfterEcosystemFinalization(marshVertices);
+
   // PHASE 4: Validate connectivity and ecosystem distribution
   console.log('\n✅ Phase 4: Validating connectivity and distribution...');
-  const connectivityStats = validateConnectivity(marshVertices, adjustedEdges);
+  const connectivityStats = validateConnectivity(finalVertices, adjustedEdges);
 
   // PHASE 5: Generate places and exits (placeholder for now)
   console.log('\n🏗️  Phase 5: Generating places and exits...');
@@ -110,21 +114,21 @@ export function generateWorld(config: WorldGenerationConfig = {}): WorldGenerati
 
   // PHASE 6: Format output for React Viewport component
   console.log('\n🎨 Phase 6: Formatting visualization data...');
-  const visualizationData = formatVisualizationData(marshVertices, adjustedEdges, ecosystemBands, spatialMetrics);
+  const visualizationData = formatVisualizationData(finalVertices, adjustedEdges, ecosystemBands, spatialMetrics);
 
   const generationTime = performance.now() - startTime;
   console.log(`\n🎉 World generation complete in ${generationTime.toFixed(1)}ms`);
-  console.log(`📊 Generated ${marshVertices.length} vertices, ${adjustedEdges.length} edges`);
+  console.log(`📊 Generated ${finalVertices.length} vertices, ${adjustedEdges.length} edges`);
   console.log(`🔗 Connectivity: ${connectivityStats.avgConnectionsPerVertex.toFixed(2)} avg connections per vertex`);
 
   return {
-    vertices: marshVertices,
+    vertices: finalVertices,
     edges: adjustedEdges,
     ecosystemBands,
     spatialMetrics,
     ditheringStats,
     connectivityStats,
-    originVertex: marshVertices.find(v => v.isOrigin)!,
+    originVertex: finalVertices.find(v => v.isOrigin)!,
     boundaryLines: visualizationData.boundaryLines,
     config: fullConfig,
     generationTime,
@@ -417,7 +421,7 @@ function generateFlowFromHead(
 
     const vertex: WorldVertex = {
       id: `v${newGridX}-${newGridY}`,
-      placeId: generatePlaceURN(ecosystem, [worldX, worldY]),
+      placeId: '' as PlaceURN, // URN will be generated after ecosystem finalization
       x: worldX,
       y: worldY,
       gridX: newGridX,
@@ -1179,22 +1183,21 @@ function adjustEcosystemConnectivity(
 } {
   console.log(`🔗 Adjusting ecosystem connectivity...`);
 
-  // Target connectivity per ecosystem
-  const TARGET_CONNECTIVITY: Record<EcosystemURN, number> = {
-    'flux:eco:steppe:arid': 3.0,
-    'flux:eco:grassland:arid': 3.0,
-    'flux:eco:forest:arid': 2.0,
-    'flux:eco:mountain:arid': 1.5,
-    'flux:eco:jungle:tropical': 1.5,
-    'flux:eco:marsh:tropical': 1.0,
-  };
+  // Target connectivity per ecosystem - using the same pattern as calculateEcosystemConnectivity
+  const TARGET_CONNECTIVITY: Record<EcosystemURN, number> = {} as Record<EcosystemURN, number>;
 
-  // Create working copies
+  // Set specific targets for ecosystems used in world generation
+  TARGET_CONNECTIVITY['flux:eco:steppe:arid'] = 3.0;
+  TARGET_CONNECTIVITY['flux:eco:grassland:temperate'] = 3.0;
+  TARGET_CONNECTIVITY['flux:eco:forest:temperate'] = 2.0;
+  TARGET_CONNECTIVITY['flux:eco:mountain:arid'] = 1.5;
+  TARGET_CONNECTIVITY['flux:eco:jungle:tropical'] = 1.5;
+  TARGET_CONNECTIVITY['flux:eco:marsh:tropical'] = 1.0;
+
+  // Create working copies (URNs are already properly generated)
   let workingVertices = vertices.map(v => ({
     id: v.id,
-    placeId: v.isOrigin
-      ? 'flux:place:origin' as PlaceURN
-      : generatePlaceURN(v.ecosystem, [v.x, v.y]),
+    placeId: v.placeId, // Use the already-generated URN
     x: v.x,
     y: v.y,
     gridX: v.gridX,
@@ -1218,6 +1221,8 @@ function adjustEcosystemConnectivity(
 
   for (const ecosystem of ecosystems) {
     const target = TARGET_CONNECTIVITY[ecosystem];
+    if (!target) continue; // Skip ecosystems not in our target map
+
     let current = calculateEcosystemConnectivity(workingVertices)[ecosystem] || 0;
 
     // Get vertices for this ecosystem
@@ -1850,6 +1855,36 @@ export function findShortestPathFromOrigin(
 
   console.log('❌ No path found from origin to target');
   return null; // No path found
+}
+
+/**
+ * Generate Place URNs after all ecosystem modifications are complete
+ * This ensures URNs match the final ecosystem assignments
+ */
+function generatePlaceURNsAfterEcosystemFinalization(vertices: WorldVertex[]): WorldVertex[] {
+  console.log('🏗️  Generating Place URNs for finalized ecosystems...');
+
+  let originCount = 0;
+  let urnCount = 0;
+
+  const finalVertices = vertices.map(vertex => {
+    if (vertex.isOrigin) {
+      originCount++;
+      return {
+        ...vertex,
+        placeId: 'flux:place:origin' as PlaceURN
+      };
+    } else {
+      urnCount++;
+      return {
+        ...vertex,
+        placeId: generatePlaceURN(vertex.ecosystem, [vertex.x, vertex.y])
+      };
+    }
+  });
+
+  console.log(`🏗️  Generated ${urnCount} Place URNs + ${originCount} origin URNs`);
+  return finalVertices;
 }
 
 /**
