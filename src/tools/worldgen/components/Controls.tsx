@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
-import type { WorldGenerationConfig, WorldGenerationResult } from '../worldgen/types';
-import { useWorldIO } from '../hooks/useWorldIO';
+import type { WorldGenerationConfig, WorldGenerationResult } from '../../../worldgen/types';
+import { useWorldIO } from '../../../hooks/useWorldIO';
 import { FileImportModal } from './FileImportModal';
 
 interface Toast {

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
-import type { WorldGenerationResult, WorldVertex } from '../worldgen/types'
-import { findShortestPathFromOrigin } from '../worldgen'
+import type { WorldGenerationResult, WorldVertex } from '../../../worldgen/types'
+import { findShortestPathFromOrigin } from '../../../worldgen'
 import type { Place, EcosystemURN, Biome } from 'flux-game'
 import VertexTooltip from './VertexTooltip'
 

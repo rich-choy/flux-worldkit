@@ -1,60 +1,25 @@
-import { useState } from 'react';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { ErrorBoundary } from '~/components/ErrorBoundary';
-import { Controls } from '~/components/Controls';
-import { Viewport } from '~/components/Viewport';
-import { useWorldGeneration } from '~/hooks/useWorldGeneration';
-import type { WorldGenerationResult, WorldGenerationConfig } from '~/worldgen/types';
-
-export type ViewMode = 'graph' | 'analysis';
+import { AppHeader } from '~/components/AppHeader';
+import { WorldGenTool } from '~/tools/worldgen/WorldGenTool';
+import { CombatSandboxTool } from '~/tools/combat/CombatSandboxTool';
 
 function App() {
-  const [world, setWorld] = useState<WorldGenerationResult | null>(null);
-  const [currentSeed, setCurrentSeed] = useState<number>(0);
-  const [viewMode, setViewMode] = useState<ViewMode>('graph');
-  const { generateWorld, isGenerating, clearError } = useWorldGeneration();
-
-  const handleGenerateWorld = async (config: WorldGenerationConfig) => {
-    console.log('App: handleGenerateWorld called with config:', config);
-    try {
-      clearError();
-      const generatedWorld = await generateWorld(config);
-      setWorld(generatedWorld);
-      setCurrentSeed(config.seed || 0); // Track the seed used for generation
-      console.log('World generated successfully:', generatedWorld);
-    } catch (error) {
-      console.error('World generation failed:', error);
-      // Error is already handled by the hook
-    }
-  };
-
-  const handleWorldImported = (importedWorld: WorldGenerationResult) => {
-    console.log('App: handleWorldImported called with world:', importedWorld);
-    setWorld(importedWorld);
-    setCurrentSeed(importedWorld.config.seed || 0); // Track the seed from the imported world
-  };
-
   return (
-    <ErrorBoundary>
+    <BrowserRouter>
       <div className="app-container h-screen flex flex-col">
-        {/* Top Menu Bar */}
-        <Controls
-          onGenerateWorld={handleGenerateWorld}
-          onWorldImported={handleWorldImported}
-          isGenerating={isGenerating}
-          world={world}
-          currentSeed={currentSeed}
-        />
-
-        {/* Main Content Area */}
-        <div className="flex-1 overflow-hidden">
-          <Viewport
-            world={world}
-            viewMode={viewMode}
-            onViewModeChange={setViewMode}
-          />
-        </div>
+        <AppHeader />
+        <ErrorBoundary>
+          <div className="flex-1 overflow-hidden">
+            <Routes>
+              <Route path="/" element={<Navigate to="/worldgen" replace />} />
+              <Route path="/worldgen" element={<WorldGenTool />} />
+              <Route path="/combat" element={<CombatSandboxTool />} />
+            </Routes>
+          </div>
+        </ErrorBoundary>
       </div>
-    </ErrorBoundary>
+    </BrowserRouter>
   );
 }
 
