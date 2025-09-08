@@ -1,4 +1,4 @@
-import { useState, KeyboardEvent } from 'react';
+import { useState, type KeyboardEvent } from 'react';
 
 interface CommandInputProps {
   onCommand: (command: string) => void;
@@ -66,10 +66,10 @@ export function CommandInput({
 
       <div className="text-xs text-gray-500 space-y-1">
         <div>
-          <strong>Commands:</strong> target &lt;actor-id&gt;, reposition &lt;position&gt;, attack, defend
+          <strong>Natural Language Commands:</strong> Use plain English to control your combatant
         </div>
         <div>
-          <strong>Examples:</strong> target alice, reposition 150, attack
+          <strong>Examples:</strong> "Attack Bob", "Move closer to Alice", "Back away 5 meters", "Defend myself"
         </div>
         <div>
           <strong>Navigation:</strong> ↑/↓ arrows for command history, Enter to execute

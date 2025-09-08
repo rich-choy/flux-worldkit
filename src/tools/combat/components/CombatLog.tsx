@@ -1,10 +1,8 @@
 import { useEffect, useRef } from 'react';
-import type { WorldEvent } from '@flux';
-
-export type LogEntry  = WorldEvent;
+import { type WorldEvent } from '@flux';
 
 interface CombatLogProps {
-  entries: LogEntry[];
+  entries: WorldEvent[];
   maxEntries?: number;
 }
 
@@ -18,25 +16,6 @@ export function CombatLog({ entries, maxEntries = 100 }: CombatLogProps) {
     }
   }, [entries]);
 
-  const getEntryStyles = (type: LogEntry['type']) => {
-    switch (type) {
-      case 'turn-start':
-        return 'text-blue-700 font-semibold bg-blue-50 px-2 py-1 rounded';
-      case 'action':
-        return 'text-yellow-700';
-      case 'attack':
-        return 'text-red-600 font-medium';
-      case 'damage':
-        return 'text-orange-600 font-medium';
-      case 'miss':
-        return 'text-gray-600';
-      case 'error':
-        return 'text-red-700 bg-red-50 px-2 py-1 rounded';
-      default:
-        return 'text-gray-700';
-    }
-  };
-
   const formatTimestamp = (timestamp: number) => {
     return new Date(timestamp).toLocaleTimeString('en-US', {
       hour12: false,
@@ -49,7 +28,7 @@ export function CombatLog({ entries, maxEntries = 100 }: CombatLogProps) {
   const displayEntries = entries.slice(-maxEntries);
 
   return (
-    <div className="combat-log bg-white border border-gray-200 rounded-lg">
+    <div className="combat-log border border-gray-200 rounded-lg">
       <div className="p-3 border-b border-gray-200 bg-gray-50">
         <h3 className="text-sm font-medium text-gray-900">Combat Log</h3>
         <p className="text-xs text-gray-500 mt-1">
@@ -71,8 +50,8 @@ export function CombatLog({ entries, maxEntries = 100 }: CombatLogProps) {
               <span className="text-xs text-gray-400 mt-0.5 min-w-[50px]">
                 {formatTimestamp(entry.ts)}
               </span>
-              <span className={`flex-1 ${getEntryStyles(entry.type)}`}>
-                {entry.payload?.message || entry.type}
+              <span className="flex-1">
+                {`${entry.type} - ${entry.actor}: ${JSON.stringify(entry.payload)}`}
               </span>
             </div>
           ))

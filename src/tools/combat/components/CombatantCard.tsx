@@ -1,21 +1,28 @@
+import type { Actor, Combatant } from '@flux';
+import { CombatFacing, Team } from '@flux';
+
 interface CombatantCardProps {
-  combatant: any;
-  actor: any;
+  combatant: Combatant;
+  actor: Actor;
   isActive?: boolean;
 }
 
+function formatJoules(energy: number) {
+  return Math.floor(energy);
+}
+
 export function CombatantCard({ combatant, actor, isActive = false }: CombatantCardProps) {
-  const teamColor = combatant.team === 'team-red' ? 'red' : 'blue';
+  const teamColor = combatant.team === Team.RED ? 'red' : 'blue';
   const teamColorClasses = {
     red: {
-      border: 'border-red-500',
-      text: 'text-red-600',
-      bg: 'bg-red-50'
+      border: '#fb4934',
+      text: '#fb4934',
+      bg: '#3c3836'
     },
     blue: {
-      border: 'border-blue-500',
-      text: 'text-blue-600',
-      bg: 'bg-blue-50'
+      border: '#83a598',
+      text: '#83a598',
+      bg: '#3c3836'
     }
   };
 
@@ -27,19 +34,23 @@ export function CombatantCard({ combatant, actor, isActive = false }: CombatantC
 
   // Get actor name from ID
   const actorName = actor?.name || combatant.actorId.split(':').pop() || 'Unknown';
-  const teamName = combatant.team === 'team-red' ? 'Red Team' : 'Blue Team';
+  const teamName = combatant.team === Team.RED ? 'Red Team' : 'Blue Team';
 
   return (
-    <div className={`
-      bg-white border-2 rounded-lg p-4 mb-4 transition-all
-      ${isActive ? `${colors.border} ${colors.bg}` : 'border-gray-200'}
-    `}>
+    <div
+      className="rounded-lg p-4 mb-4 transition-all"
+      style={{
+        backgroundColor: isActive ? colors.bg : '#282828',
+        border: `2px solid ${isActive ? colors.border : '#504945'}`,
+        fontFamily: 'Zilla Slab'
+      }}
+    >
       {/* Header */}
       <div className="mb-3">
-        <h3 className={`font-semibold text-lg ${colors.text}`}>
+        <h3 className="font-semibold text-lg" style={{ color: colors.text }}>
           {actorName}
         </h3>
-        <p className="text-sm text-gray-600">
+        <p className="text-sm" style={{ color: '#a89984' }}>
           {teamName}{isActive ? ' - Active Turn' : ''}
         </p>
       </div>
@@ -47,31 +58,34 @@ export function CombatantCard({ combatant, actor, isActive = false }: CombatantC
       {/* Stats */}
       <div className="grid grid-cols-3 gap-2 mb-3 text-xs">
         <div className="text-center">
-          <div className="font-medium text-gray-700">POW</div>
-          <div className="text-lg font-bold">{actor?.stats?.pow?.eff || 50}</div>
+          <div className="font-medium" style={{ color: '#ebdbb2' }}>POW</div>
+          <div className="text-lg font-bold" style={{ color: '#ebdbb2' }}>{actor?.stats?.pow?.eff || 50}</div>
         </div>
         <div className="text-center">
-          <div className="font-medium text-gray-700">FIN</div>
-          <div className="text-lg font-bold">{actor?.stats?.fin?.eff || 50}</div>
+          <div className="font-medium" style={{ color: '#ebdbb2' }}>FIN</div>
+          <div className="text-lg font-bold" style={{ color: '#ebdbb2' }}>{actor?.stats?.fin?.eff || 50}</div>
         </div>
         <div className="text-center">
-          <div className="font-medium text-gray-700">RES</div>
-          <div className="text-lg font-bold">{actor?.stats?.res?.eff || 50}</div>
+          <div className="font-medium" style={{ color: '#ebdbb2' }}>RES</div>
+          <div className="text-lg font-bold" style={{ color: '#ebdbb2' }}>{actor?.stats?.res?.eff || 50}</div>
         </div>
       </div>
 
       {/* Action Points */}
       <div className="mb-3">
         <div className="flex justify-between items-center mb-1">
-          <span className="text-sm font-medium text-gray-700">Action Points</span>
-          <span className="text-xs text-gray-500">
-            {combatant.ap.eff.cur.toFixed(1)}/{combatant.ap.eff.max.toFixed(1)}
+          <span className="text-sm font-medium" style={{ color: '#ebdbb2' }}>Action Points</span>
+          <span className="text-xs" style={{ color: '#a89984' }}>
+            {combatant.ap.eff.cur.toFixed(1)}/{combatant.ap.eff.max.toFixed(1)} AP
           </span>
         </div>
-        <div className="w-full bg-gray-200 rounded-full h-2">
+        <div className="w-full rounded-full h-2" style={{ backgroundColor: '#504945' }}>
           <div
-            className="bg-red-500 h-2 rounded-full transition-all duration-300"
-            style={{ width: `${apPercent}%` }}
+            className="h-2 rounded-full transition-all duration-300"
+            style={{
+              width: `${apPercent}%`,
+              backgroundColor: '#fb4934'
+            }}
           />
         </div>
       </div>
@@ -79,29 +93,32 @@ export function CombatantCard({ combatant, actor, isActive = false }: CombatantC
       {/* Energy */}
       <div className="mb-3">
         <div className="flex justify-between items-center mb-1">
-          <span className="text-sm font-medium text-gray-700">Energy</span>
-          <span className="text-xs text-gray-500">
-            {combatant.energy.eff.cur}/{combatant.energy.eff.max}
+          <span className="text-sm font-medium" style={{ color: '#ebdbb2' }}>Energy</span>
+          <span className="text-xs" style={{ color: '#a89984' }}>
+            {formatJoules(combatant.energy.eff.cur)}/{formatJoules(combatant.energy.eff.max)} Joules
           </span>
         </div>
-        <div className="w-full bg-gray-200 rounded-full h-2">
+        <div className="w-full rounded-full h-2" style={{ backgroundColor: '#504945' }}>
           <div
-            className="bg-green-500 h-2 rounded-full transition-all duration-300"
-            style={{ width: `${energyPercent}%` }}
+            className="h-2 rounded-full transition-all duration-300"
+            style={{
+              width: `${energyPercent}%`,
+              backgroundColor: '#8ec07c'
+            }}
           />
         </div>
       </div>
 
       {/* Position & Status */}
-      <div className="text-xs text-gray-600 space-y-1">
+      <div className="text-xs space-y-1" style={{ color: '#a89984' }}>
         <div>
           <span className="font-medium">Position:</span> {combatant.position.coordinate}m
         </div>
         <div>
-          <span className="font-medium">Facing:</span> {combatant.position.facing === 'RIGHT' ? 'Right →' : 'Left ←'}
+          <span className="font-medium">Facing:</span> {combatant.position.facing === CombatFacing.RIGHT ? 'Right →' : 'Left ←'}
         </div>
         <div>
-          <span className="font-medium">Velocity:</span> {combatant.position.velocity.toFixed(1)} m/s
+          <span className="font-medium">Velocity:</span> {combatant.position.speed.toFixed(1)} m/s
         </div>
         {combatant.target && (
           <div>
