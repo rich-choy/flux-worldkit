@@ -114,7 +114,7 @@ describe('useImmutableCombatState', () => {
       const originalSession = result.current.state.session;
 
       act(() => {
-        result.current.executeInDraft((draftSession, context) => {
+        result.current.executeInDraft((draftSession, _context) => {
           // Simulate a mutation that the game package would make
           draftSession.status = SessionStatus.RUNNING;
           return 'test-result';
@@ -137,7 +137,7 @@ describe('useImmutableCombatState', () => {
       let capturedContext: CombatContext | null = null;
 
       act(() => {
-        result.current.executeInDraft((draftSession, context) => {
+        result.current.executeInDraft((_draftSession, context) => {
           capturedContext = context;
           return 'test';
         });
@@ -155,7 +155,7 @@ describe('useImmutableCombatState', () => {
       let executionResult: any;
 
       act(() => {
-        const { result: fnResult, newState } = result.current.executeInDraft((draftSession, context) => {
+        const { result: fnResult, newState } = result.current.executeInDraft((draftSession, _context) => {
           draftSession.status = SessionStatus.RUNNING;
           return { success: true, data: 'test-data' };
         });
@@ -173,7 +173,7 @@ describe('useImmutableCombatState', () => {
       );
 
       act(() => {
-        result.current.executeInDraft((draftSession, context) => {
+        result.current.executeInDraft((draftSession, _context) => {
           // Simulate deep mutations like the game package makes
           if (draftSession.data.rounds.current) {
             draftSession.data.rounds.current.number = 5;
@@ -205,17 +205,7 @@ describe('useImmutableCombatState', () => {
 
     it('should execute intent and return events', () => {
       // Mock the useIntentExecution to return test events
-      const mockEvents: WorldEvent[] = [
-        {
-          id: 'test-event-1',
-          type: 'TEST_EVENT' as any,
-          ts: Date.now(),
-          actor: aliceId,
-          location: testPlaceId,
-          trace: 'test-trace',
-          payload: { action: 'test' }
-        }
-      ];
+
 
       // We'll need to mock the intent execution system
       // For now, let's test the structure
@@ -242,7 +232,7 @@ describe('useImmutableCombatState', () => {
       const originalAP = originalSession.data.combatants.get(aliceId)?.ap.eff.cur;
 
       act(() => {
-        result.current.executeInDraft((draftSession, context) => {
+        result.current.executeInDraft((draftSession, _context) => {
           const draftCombatant = draftSession.data.combatants.get(aliceId);
 
           if (draftCombatant) {
@@ -286,7 +276,7 @@ describe('useImmutableCombatState', () => {
       );
 
       act(() => {
-        result.current.executeInDraft((draftSession, context) => {
+        result.current.executeInDraft((draftSession, _context) => {
           const draftCombatant = draftSession.data.combatants.get(aliceId);
 
           if (draftCombatant) {
@@ -329,7 +319,7 @@ describe('useImmutableCombatState', () => {
       const originalSessionCopy = JSON.parse(JSON.stringify(mockSession));
 
       act(() => {
-        result.current.executeInDraft((draftSession, context) => {
+        result.current.executeInDraft((draftSession, _context) => {
           // Make various mutations
           draftSession.status = 'ACTIVE' as any;
           if (draftSession.data.rounds.current) {
@@ -398,13 +388,13 @@ describe('useImmutableCombatState', () => {
 
       // Perform multiple operations and capture context each time
       act(() => {
-        result.current.executeInDraft((draft, context) => {
+        result.current.executeInDraft((_draft, context) => {
           capturedContexts.push(context);
         });
       });
 
       act(() => {
-        result.current.executeInDraft((draft, context) => {
+        result.current.executeInDraft((_draft, context) => {
           capturedContexts.push(context);
         });
       });
@@ -421,7 +411,7 @@ describe('useImmutableCombatState', () => {
       );
 
       act(() => {
-        result.current.executeInDraft((draft, context) => {
+        result.current.executeInDraft((_draft, context) => {
           // Context functions should be preserved and callable
           expect(typeof context.declareError).toBe('function');
           expect(typeof context.declareEvent).toBe('function');
@@ -568,7 +558,7 @@ describe('useImmutableCombatState', () => {
 
       expect(() => {
         act(() => {
-        result.current.executeInDraft((draft, context) => {
+        result.current.executeInDraft((draft, _context) => {
           draft.status = SessionStatus.RUNNING; // This mutation happens
           throw new Error('Test error'); // But then we throw
         });

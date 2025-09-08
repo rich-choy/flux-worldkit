@@ -1,6 +1,6 @@
 import React from 'react';
 import type { WorldGenerationResult } from '../../../worldgen/types';
-import type { ViewMode } from '../../WorldGenTool';
+import type { ViewMode } from '../WorldGenTool';
 import { Canvas } from './Canvas';
 import type { EcosystemURN, Biome } from '@flux';
 

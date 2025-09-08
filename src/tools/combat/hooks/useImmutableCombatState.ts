@@ -1,7 +1,7 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { createDraft, finishDraft, type WritableDraft } from 'immer';
 import {
-  useIntentExecution,
+  useIntentExecution as createIntentExecutor,
   type ActorURN,
   type CombatContext,
   type CombatSession,
@@ -29,15 +29,30 @@ interface UseImmutableCombatStateResult {
  * while the underlying game logic can continue using mutations for performance.
  */
 export function useImmutableCombatState(
-  context: CombatContext, // Context is stable and contains functions - don't draft it
-  initialSession: CombatSession,
+  context: CombatContext | null, // Context is stable and contains functions - don't draft it
+  initialSession: CombatSession | null,
   currentActorId: ActorURN | null
 ): UseImmutableCombatStateResult {
-  const [state, setState] = useState<ImmutableCombatState>({ session: initialSession });
+  const [state, setState] = useState<ImmutableCombatState>({
+    session: initialSession || null as any
+  });
+
+  // Update internal state when initialSession changes (from null to actual session)
+  // Only update if we don't have a session yet (initialization case)
+  useEffect(() => {
+    if (initialSession && !state.session) {
+      setState({ session: initialSession });
+    }
+  }, [initialSession, state.session]);
 
   const executeInDraft = useCallback(<T>(
     fn: (draftSession: WritableDraft<CombatSession>, context: CombatContext) => T
   ): { result: T; newState: ImmutableCombatState } => {
+    // Return early if not initialized
+    if (!context || !state.session) {
+      throw new Error('Combat state not initialized - context or session is null');
+    }
+
     // Only draft the session - context contains functions and should remain stable
     const draftSession = createDraft(state.session);
 
@@ -55,22 +70,51 @@ export function useImmutableCombatState(
   }, [state, context]);
 
   const executeCommand = useCallback((command: string): WorldEvent[] => {
-    if (!currentActorId) return [];
+    console.log('🔍 executeCommand called with:', command);
+    // Return early if not initialized
+    if (!currentActorId || !context || !state.session) return [];
 
-    const { result: events } = executeInDraft((draftSession, ctx) => {
-      // Create intent executor with stable context and draft session
-      const intentExecutor = useIntentExecution(
-        ctx,
-        draftSession,
-        currentActorId
-      );
+    try {
+      const { result: events } = executeInDraft((draftSession, ctx) => {
+        console.log('🔍 Inside executeInDraft for command:', command);
+        // Capture events declared during this command execution
+        const commandEvents: WorldEvent[] = [];
 
-      // Execute command - mutations happen on draft session, tracked by Immer
-      return intentExecutor.executeIntent(command);
-    });
+        // Create a context wrapper that captures events for this command
+        const contextWithEventCapture = {
+          ...ctx,
+          declareEvent: (event: WorldEvent) => {
+            console.log('🔍 declareEvent captured:', event.id, event.type);
+            // Call the original declareEvent to maintain normal behavior
+            ctx.declareEvent(event);
+            // Also capture the event for our return value
+            commandEvents.push(event);
+          }
+        };
 
-    return events;
-  }, [currentActorId, executeInDraft]);
+        // Create intent executor with our event-capturing context
+        const intentExecutor = createIntentExecutor(
+          contextWithEventCapture,
+          draftSession,
+          currentActorId
+        );
+
+        // Execute command - mutations happen on draft session, tracked by Immer
+        // The intent executor will call declareEvent, which we capture above
+        intentExecutor.executeIntent(command);
+
+        console.log('🔍 Command execution captured', commandEvents.length, 'events:', commandEvents.map(e => e.id));
+        // Return only the events declared during this command
+        return commandEvents;
+      });
+
+      console.log('🔍 executeCommand returning', events.length, 'events:', events.map(e => e.id));
+      return events;
+    } catch (error) {
+      console.warn('executeCommand failed:', error);
+      return [];
+    }
+  }, [currentActorId, context, state.session, executeInDraft]);
 
   return { state, executeInDraft, executeCommand };
 }

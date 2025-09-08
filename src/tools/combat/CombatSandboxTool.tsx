@@ -6,31 +6,40 @@ import {
   type CombatContext,
   type CombatSession,
   type ActorURN,
-  type WorldEvent,
   type PlaceURN,
   Team,
   useCombatSession,
   ActorStat,
+  EventType,
 } from '@flux';
 
 import { BattlefieldCanvas } from './components/BattlefieldCanvas';
 import { CommandInput } from './components/CommandInput';
 import { CombatantCard } from './components/CombatantCard';
 import { CombatLog } from './components/CombatLog';
-import { useIntentBasedCombat } from './hooks/useIntentBasedCombat';
-
+import { useImmutableCombatState } from './hooks/useImmutableCombatState';
+import { useCombatLog } from './hooks/useCombatLog';
 // Test actor IDs and place
 const ALICE_ID: ActorURN = 'flux:actor:alice';
 const BOB_ID: ActorURN = 'flux:actor:bob';
 const TEST_PLACE_ID: PlaceURN = 'flux:place:test-battlefield';
 
 export function CombatSandboxTool() {
-  const [context, setContext] = useState<CombatContext | null>(null);
-  const [session, setSession] = useState<CombatSession | null>(null);
+  const [initialContext, setInitialContext] = useState<CombatContext | null>(null);
+  const [initialSession, setInitialSession] = useState<CombatSession | null>(null);
   const [actors, setActors] = useState<Record<string, any>>({});
   const [currentActorId, setCurrentActorId] = useState<ActorURN | null>(null);
-  const [combatLog, setCombatLog] = useState<WorldEvent[]>([]);
   const [isInitialized, setIsInitialized] = useState(false);
+
+  // Use our immutable combat state hook - this replaces manual state management
+  const { state, executeCommand } = useImmutableCombatState(
+    initialContext,
+    initialSession,
+    currentActorId
+  );
+
+  // Use combat log hook for event management
+  const { combatLog, addEvents: handleLogEvents, setLog: setCombatLog } = useCombatLog();
 
 type ActorStatsInput = {
   pow: number;
@@ -59,58 +68,72 @@ type ActorStatsInput = {
 
   // Initialize combat session with two test actors
   useEffect(() => {
-    const transformerContext = createTransformerContext();
-    const combatContext = createCombatContext(transformerContext);
+    try {
+      const transformerContext = createTransformerContext();
+      const combatContext = createCombatContext(transformerContext);
 
-    // Create Alice (Red Team - POW build)
-    const alice = createActorWithShellStats(ALICE_ID, 'Alice', { pow: 65, fin: 45, res: 50, per: 30 });
-    const bob = createActorWithShellStats(BOB_ID, 'Bob', { pow: 40, fin: 70, res: 40 });
+      // Create Alice (Red Team - POW build)
+      const alice = createActorWithShellStats(ALICE_ID, 'Alice', { pow: 65, fin: 45, res: 50, per: 30 });
+      const bob = createActorWithShellStats(BOB_ID, 'Bob', { pow: 40, fin: 70, res: 40 });
 
-    // Add actors to context
-    combatContext.world.actors[ALICE_ID] = alice;
-    combatContext.world.actors[BOB_ID] = bob;
+      // Add actors to context
+      combatContext.world.actors[ALICE_ID] = alice;
+      combatContext.world.actors[BOB_ID] = bob;
 
-    const { session: combatSession, addCombatant, startCombat } = useCombatSession(
-      combatContext,
-      'initialization',
-      TEST_PLACE_ID
-    );
+      const { session: combatSession, addCombatant, startCombat } = useCombatSession(
+        combatContext,
+        'initialization',
+        TEST_PLACE_ID
+      );
 
-    addCombatant(ALICE_ID, Team.RED);
-    addCombatant(BOB_ID, Team.BLUE);
+      addCombatant(ALICE_ID, Team.RED);
+      addCombatant(BOB_ID, Team.BLUE);
 
-    // Start combat after adding all combatants
-    startCombat();
+      // Start combat after adding all combatants
+      startCombat();
 
-    setContext(combatContext);
-    setSession(combatSession);
-    setActors({ [ALICE_ID]: alice, [BOB_ID]: bob });
-    setCurrentActorId(ALICE_ID); // Alice starts
-    setIsInitialized(true);
+      setInitialContext(combatContext);
+      setInitialSession(combatSession);
+      setActors({ [ALICE_ID]: alice, [BOB_ID]: bob });
+      setCurrentActorId(ALICE_ID); // Alice starts
+      setIsInitialized(true);
 
-    // Get initial events from the combat session creation
-    const initialEvents = combatContext.getDeclaredEvents();
-    setCombatLog(initialEvents);
+      // Get initial events from the combat session creation
+      const initialEvents = combatContext.getDeclaredEvents();
+      setCombatLog(initialEvents);
+    } catch (error) {
+      console.error('❌ Combat initialization failed:', error);
+    }
   }, []);
 
-  // Combat actions hook - now using natural language intent system
-  const { executeCommand, getAvailableCommands, getCurrentCombatant } = useIntentBasedCombat({
-    context,
-    session,
-    currentActorId,
-    onLogEvents: (events: WorldEvent[]) => {
-      setCombatLog(prev => [...prev, ...events]);
-      // Trigger session re-render to update UI
-      if (session) {
-        setSession({ ...session });
-      }
-    },
-    onTurnAdvance: (newActorId: ActorURN) => {
-      setCurrentActorId(newActorId);
-    }
-  });
 
-  if (!isInitialized || !context || !session) {
+  const handleTurnAdvance = (newActorId: ActorURN) => {
+    setCurrentActorId(newActorId);
+  };
+
+  // Enhanced executeCommand that integrates with our immutable state
+  const handleCommand = (command: string) => {
+    try {
+      const events = executeCommand(command);
+      handleLogEvents(events);
+
+      // Check for turn advancement in the events
+      const turnStartEvent = events.find(event => event.type === EventType.COMBAT_TURN_DID_START);
+      if (turnStartEvent && turnStartEvent.actor !== currentActorId) {
+        handleTurnAdvance(turnStartEvent.actor!);
+      }
+    } catch (error) {
+      throw error;
+    }
+  };
+
+  // Get current combatant from immutable state
+  const getCurrentCombatant = () => {
+    if (!currentActorId || !state.session) return null;
+    return state.session.data?.combatants?.get(currentActorId) || null;
+  };
+
+  if (!isInitialized || !state.session) {
     return (
       <div className="combat-sandbox-tool h-full flex flex-col">
         <div className="flex-1 flex items-center justify-center bg-gray-50">
@@ -123,7 +146,7 @@ type ActorStatsInput = {
     );
   }
 
-  const combatants = Array.from(session.data.combatants.values());
+  const combatants = Array.from(state.session.data.combatants.values());
   const currentCombatant = getCurrentCombatant();
 
   return (
@@ -133,7 +156,7 @@ type ActorStatsInput = {
         <div className="flex justify-between items-center">
           <h1 className="text-xl font-semibold" style={{ color: '#ebdbb2', fontFamily: 'Zilla Slab' }}>Combat Sandbox</h1>
           <div className="text-sm" style={{ color: '#a89984', fontFamily: 'Zilla Slab' }}>
-            Turn {session.data.rounds.current.number} - {actors[currentActorId!]?.name || 'Unknown'}
+            Turn {state.session.data.rounds.current.number} - {actors[currentActorId!]?.name || 'Unknown'}
             ({currentCombatant?.ap.eff.cur.toFixed(1) || 0} AP remaining)
           </div>
         </div>
@@ -157,17 +180,21 @@ type ActorStatsInput = {
 
         {/* Center - Battlefield */}
         <div className="col-span-6">
-          <BattlefieldCanvas session={session} />
+          <BattlefieldCanvas session={state.session} />
         </div>
 
         {/* Right sidebar - Command input and log */}
         <div className="col-span-3 flex flex-col space-y-4">
           <CommandInput
-            onCommand={executeCommand}
-            placeholder="Enter command (Attack Bob, Move closer to Alice, Defend myself)"
+            onCommand={handleCommand}
+            placeholder="Enter command (attack bob, move closer to alice, defend myself)"
           />
 
           <CombatLog entries={combatLog} />
+          {/* Debug: Show combat log contents */}
+          <div style={{ fontSize: '10px', color: '#666', marginTop: '10px' }}>
+            Debug - Combat Log ({combatLog.length} entries): {combatLog.map(e => e.id).join(', ')}
+          </div>
         </div>
       </div>
 
@@ -175,8 +202,7 @@ type ActorStatsInput = {
       <div className="px-6 py-4" style={{ backgroundColor: '#282828', borderTop: '1px solid #504945' }}>
         <div className="flex justify-between items-center">
           <div className="text-sm" style={{ color: '#ebdbb2', fontFamily: 'Zilla Slab' }}>
-            Available commands: {getAvailableCommands().slice(0, 5).join(', ')}
-            {getAvailableCommands().length > 5 && '...'}
+            Available commands: attack, defend, move closer, back away, target &lt;actor&gt;
           </div>
           <div className="flex gap-2">
             <div className="text-xs text-green-400 bg-green-900/20 px-3 py-2 rounded">
