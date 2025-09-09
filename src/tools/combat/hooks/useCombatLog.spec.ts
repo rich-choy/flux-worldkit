@@ -1,34 +1,30 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { renderHook, act } from '@testing-library/react';
 import { useCombatLog } from './useCombatLog';
-import type { WorldEvent } from '@flux';
+import type { EventType, WorldEvent } from '@flux';
+
+function createMockEvent(id: string, type: string, ts: number = Date.now()): WorldEvent {
+  return {
+    id,
+    type: type as unknown as EventType.ACTOR_WAS_CREATED,
+    ts,
+    trace: 'test-trace',
+    actor: 'alice' as any,
+    location: 'flux:place:test',
+    payload: { test: true }
+  } as WorldEvent;
+}
 
 describe('useCombatLog', () => {
+  const DEFAULT_TIMESTAMP = 1234567890000;
+
   let mockEvents: WorldEvent[];
 
   beforeEach(() => {
     mockEvents = [
-      {
-        id: 'event1',
-        type: 'combat:test:event1',
-        timestamp: Date.now(),
-        actor: 'alice' as any,
-        data: { test: true }
-      },
-      {
-        id: 'event2',
-        type: 'combat:test:event2',
-        timestamp: Date.now(),
-        actor: 'bob' as any,
-        data: { test: true }
-      },
-      {
-        id: 'event3',
-        type: 'combat:test:event3',
-        timestamp: Date.now(),
-        actor: 'alice' as any,
-        data: { test: true }
-      }
+      createMockEvent('event1', 'combat:test:event1', DEFAULT_TIMESTAMP),
+      createMockEvent('event2', 'combat:test:event2', DEFAULT_TIMESTAMP),
+      createMockEvent('event3', 'combat:test:event3', DEFAULT_TIMESTAMP),
     ];
   });
 
@@ -188,8 +184,8 @@ describe('useCombatLog', () => {
     it('should handle events with same id but different content', () => {
       const { result } = renderHook(() => useCombatLog());
 
-      const event1 = { ...mockEvents[0], data: { original: true } };
-      const event1Modified = { ...mockEvents[0], data: { modified: true } };
+      const event1 = { ...mockEvents[0], payload: { original: true } };
+      const event1Modified = { ...mockEvents[0], payload: { modified: true } };
 
       act(() => {
         result.current.addEvents([event1]);
@@ -201,7 +197,7 @@ describe('useCombatLog', () => {
 
       // Should still only have one event (the original)
       expect(result.current.combatLog).toHaveLength(1);
-      expect(result.current.combatLog[0].data).toEqual({ original: true });
+      expect(result.current.combatLog[0].payload).toEqual({ original: true });
     });
 
     it('should preserve order when deduplicating', () => {
