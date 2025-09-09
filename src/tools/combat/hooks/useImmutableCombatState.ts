@@ -70,13 +70,11 @@ export function useImmutableCombatState(
   }, [state, context]);
 
   const executeCommand = useCallback((command: string): WorldEvent[] => {
-    console.log('🔍 executeCommand called with:', command);
     // Return early if not initialized
     if (!currentActorId || !context || !state.session) return [];
 
     try {
       const { result: events } = executeInDraft((draftSession, ctx) => {
-        console.log('🔍 Inside executeInDraft for command:', command);
         // Capture events declared during this command execution
         const commandEvents: WorldEvent[] = [];
 
@@ -84,7 +82,6 @@ export function useImmutableCombatState(
         const contextWithEventCapture = {
           ...ctx,
           declareEvent: (event: WorldEvent) => {
-            console.log('🔍 declareEvent captured:', event.id, event.type);
             // Call the original declareEvent to maintain normal behavior
             ctx.declareEvent(event);
             // Also capture the event for our return value
@@ -103,12 +100,10 @@ export function useImmutableCombatState(
         // The intent executor will call declareEvent, which we capture above
         intentExecutor.executeIntent(command);
 
-        console.log('🔍 Command execution captured', commandEvents.length, 'events:', commandEvents.map(e => e.id));
         // Return only the events declared during this command
         return commandEvents;
       });
 
-      console.log('🔍 executeCommand returning', events.length, 'events:', events.map(e => e.id));
       return events;
     } catch (error) {
       console.warn('executeCommand failed:', error);

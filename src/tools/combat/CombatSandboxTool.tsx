@@ -11,6 +11,8 @@ import {
   useCombatSession,
   ActorStat,
   EventType,
+  HUMAN_ANATOMY,
+  createWeaponSchema,
 } from '@flux';
 
 import { BattlefieldCanvas } from './components/BattlefieldCanvas';
@@ -19,6 +21,7 @@ import { CombatantCard } from './components/CombatantCard';
 import { CombatLog } from './components/CombatLog';
 import { useImmutableCombatState } from './hooks/useImmutableCombatState';
 import { useCombatLog } from './hooks/useCombatLog';
+
 // Test actor IDs and place
 const ALICE_ID: ActorURN = 'flux:actor:alice';
 const BOB_ID: ActorURN = 'flux:actor:bob';
@@ -52,6 +55,11 @@ type ActorStatsInput = {
 
   const createActorWithShellStats = (id: ActorURN, name: string, stats: ActorStatsInput) => {
     const { pow, fin, res, int = 10, per = 10, mem = 10 } = stats;
+
+    // Following the corrected pattern from strike.spec.ts
+    const weaponEntityId = 'flux:item:test-weapon'; // Item instance URN
+    const weaponSchemaUrn = 'flux:schema:weapon:test'; // Weapon schema URN
+
     return createActor({
       id,
       name,
@@ -62,7 +70,19 @@ type ActorStatsInput = {
         [ActorStat.INT]: { nat: int, eff: int, mods: {} },
         [ActorStat.PER]: { nat: per, eff: per, mods: {} },
         [ActorStat.MEM]: { nat: mem, eff: mem, mods: {} },
-      }
+      },
+      equipment: {
+        [HUMAN_ANATOMY.RIGHT_HAND]: {
+          [weaponEntityId]: 1,
+        },
+      },
+      inventory: {
+        mass: 1_000,
+        ts: Date.now(),
+        items: {
+          [weaponEntityId]: { id: weaponEntityId, schema: weaponSchemaUrn },
+        },
+      },
     });
   };
 
@@ -71,6 +91,20 @@ type ActorStatsInput = {
     try {
       const transformerContext = createTransformerContext();
       const combatContext = createCombatContext(transformerContext);
+
+      // Set up weapon schema for combat
+      const testWeapon = createWeaponSchema({
+        name: 'Test Weapon',
+        urn: 'flux:schema:weapon:test',
+        range: { optimal: 1, max: 1 } // True 1m range melee weapon
+      });
+      // @ts-expect-error
+      combatContext.schemaManager.getSchema = (urn: string) => {
+        if (urn === testWeapon.urn) {
+          return testWeapon;
+        }
+        throw new Error(`Schema not found for URN: ${urn}`);
+      };
 
       // Create Alice (Red Team - POW build)
       const alice = createActorWithShellStats(ALICE_ID, 'Alice', { pow: 65, fin: 45, res: 50, per: 30 });
@@ -191,10 +225,6 @@ type ActorStatsInput = {
           />
 
           <CombatLog entries={combatLog} />
-          {/* Debug: Show combat log contents */}
-          <div style={{ fontSize: '10px', color: '#666', marginTop: '10px' }}>
-            Debug - Combat Log ({combatLog.length} entries): {combatLog.map(e => e.id).join(', ')}
-          </div>
         </div>
       </div>
 
