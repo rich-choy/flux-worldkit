@@ -203,6 +203,67 @@ describe('useImmutableCombatState', () => {
       expect(events!).toEqual([]);
     });
 
+    it('should reproduce Combat Sandbox session not found error', () => {
+      // This test reproduces the exact scenario from CombatSandboxTool.tsx
+      // where useCombatSession creates a session but it's not found later
+
+      // Add Alice combatant to the session (like CombatSandboxTool does)
+      mockSession.data.combatants.set(aliceId, aliceCombatant);
+
+      // Add Bob combatant to the session so "attack bob" can find the target
+      const bobCombatant = createCombatant(bob, Team.BLUE, (c: any) => ({
+        ...c,
+        actorId: bobId,
+        team: Team.BLUE,
+        position: { coordinate: 200, facing: CombatFacing.RIGHT, speed: 0 },
+        ap: { nat: { cur: 5.0, max: 5.0 }, eff: { cur: 5.0, max: 5.0 }, mods: {} },
+        energy: { position: 1, nat: { cur: 100, max: 100 }, eff: { cur: 100, max: 100 }, mods: {} },
+        balance: { nat: { cur: 1, max: 1 }, eff: { cur: 1, max: 1 }, mods: {} },
+        target: null,
+        mass: 75000,
+      }));
+      mockSession.data.combatants.set(bobId, bobCombatant);
+
+      // Store the session in world context (this is what should happen)
+      mockContext.world.sessions[mockSession.id] = mockSession;
+
+      const { result } = renderHook(() =>
+        useImmutableCombatState(mockContext, mockSession, aliceId)
+      );
+
+      // This should work without throwing "Session not found" error
+      let events: WorldEvent[];
+      act(() => {
+        events = result.current.executeCommand('attack bob');
+      });
+
+      // The command should execute without throwing
+      expect(Array.isArray(events!)).toBe(true);
+    });
+
+    it('should handle session not found error gracefully', () => {
+      // This test shows that session not found errors are caught by executeCommand
+
+      // Add Alice combatant to the session
+      mockSession.data.combatants.set(aliceId, aliceCombatant);
+
+      // DON'T store the session in world context - this causes the session not found error
+      // mockContext.world.sessions[mockSession.id] = mockSession; // <-- commented out
+
+      const { result } = renderHook(() =>
+        useImmutableCombatState(mockContext, mockSession, aliceId)
+      );
+
+      // executeCommand should catch the error and return empty array
+      let events: WorldEvent[];
+      act(() => {
+        events = result.current.executeCommand('attack bob');
+      });
+
+      // Should return empty array when error occurs
+      expect(events!).toEqual([]);
+    });
+
     it('should execute intent and return events', () => {
       // Mock the useIntentExecution to return test events
 

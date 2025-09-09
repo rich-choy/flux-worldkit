@@ -1,14 +1,15 @@
 import { useCallback, useMemo } from 'react';
 import {
-  useIntentExecution,
-  ActionExecutionError,
-  useCombatant,
-  type IntentExecutor,
-  type ActorURN,
-  type CombatContext,
-  type CombatSession,
-  type WorldEvent,
-  EventType
+    useIntentExecution,
+    ActionExecutionError,
+    useCombatant,
+    useCombatSession,
+    type IntentExecutor,
+    type ActorURN,
+    type CombatContext,
+    type CombatSession,
+    type WorldEvent,
+    EventType
 } from '@flux';
 
 interface UseIntentBasedCombatProps {
@@ -33,8 +34,12 @@ export function useIntentBasedCombat({
     if (!context || !session || !currentActorId) {
       return null;
     }
-    return useIntentExecution(context, session, currentActorId);
 
+    // Use the session's built-in combatant hook with turn advancement
+    const sessionHook = useCombatSession(context, context.uniqid(), session.data.location, session.id);
+    const combatantHook = sessionHook.useCombatant(currentActorId);
+
+    return useIntentExecution(context, session, combatantHook);
   }, [context, session, currentActorId, location, onLogEvents]);
 
   const executeCommand = useCallback((commandText: string) => {

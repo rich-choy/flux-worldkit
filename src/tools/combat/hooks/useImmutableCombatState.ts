@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { createDraft, finishDraft, type WritableDraft } from 'immer';
 import {
   useIntentExecution as createIntentExecutor,
+  useCombatSession,
   type ActorURN,
   type CombatContext,
   type CombatSession,
@@ -89,11 +90,15 @@ export function useImmutableCombatState(
           }
         };
 
+        // Use the session's built-in combatant hook with turn advancement
+        const sessionHook = useCombatSession(contextWithEventCapture, contextWithEventCapture.uniqid(), draftSession.data.location, draftSession.id);
+        const combatantHook = sessionHook.useCombatant(currentActorId);
+
         // Create intent executor with our event-capturing context
         const intentExecutor = createIntentExecutor(
           contextWithEventCapture,
           draftSession,
-          currentActorId
+          combatantHook
         );
 
         // Execute command - mutations happen on draft session, tracked by Immer
