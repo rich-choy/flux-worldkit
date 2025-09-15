@@ -12,6 +12,9 @@ import {
   EventType,
   HUMAN_ANATOMY,
   createWeaponSchema,
+  type SessionURN,
+  type RollResult,
+  SpecialDuration,
 } from '@flux';
 
 const CombatPhase = {
@@ -38,6 +41,7 @@ export function CombatSandboxTool() {
   const [phase, setPhase] = useState<CombatPhase>(CombatPhase.SETUP);
   const [initialContext, setInitialContext] = useState<TransformerContext | null>(null);
   const [initialSession, setInitialSession] = useState<CombatSession | null>(null);
+  const [sessionId, setSessionId] = useState<SessionURN | null>(null);
   const [actors, setActors] = useState<Record<string, any>>({});
   const [currentActorId, setCurrentActorId] = useState<ActorURN | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -46,7 +50,9 @@ export function CombatSandboxTool() {
   const { state, executeCommand } = useImmutableCombatState(
     initialContext,
     initialSession,
-    currentActorId
+    currentActorId,
+    TEST_PLACE_ID, // Use the same placeId as in startCombat
+    sessionId      // Pass the captured session ID
   );
 
   // Use combat log hook for event management
@@ -135,19 +141,49 @@ type ActorStatsInput = {
     if (!initialContext || phase !== CombatPhase.SETUP) return;
 
     try {
+      // Create deterministic initiative to ensure Alice always goes first
+      const aliceInitiative: RollResult = {
+        dice: '1d20' as const,
+        values: [20],
+        mods: { perception: { type: 'flux:modifier:initiative:per', origin: { type: 'flux:stat:per', actor: 'self' }, value: 0, duration: SpecialDuration.PERMANENT } },
+        natural: 20,
+        result: 20
+      };
+      const bobInitiative: RollResult = {
+        dice: '1d20' as const,
+        values: [1],
+        mods: { perception: { type: 'flux:modifier:initiative:per', origin: { type: 'flux:stat:per', actor: 'self' }, value: 0, duration: SpecialDuration.PERMANENT } },
+        natural: 1,
+        result: 1
+      };
+
+      const deterministicInitiative = new Map<ActorURN, RollResult>([
+        [ALICE_ID, aliceInitiative],
+        [BOB_ID, bobInitiative]
+      ]);
+
+      // Create session with deterministic initiative using the proper abstraction
+      // Note: The @flux package may not have the updated useCombatSession signature yet
+      // For now, we'll create the session and then override the initiative
       const { session: combatSession, addCombatant, startCombat: startCombatSession } = useCombatSession(
         initialContext,
         TEST_PLACE_ID,
+        undefined, // sessionId
+        undefined, // battlefield
+        deterministicInitiative,
       );
+
+      // Capture the session ID that was created
+      setSessionId(combatSession.id);
 
       addCombatant(ALICE_ID, Team.ALPHA);
       addCombatant(BOB_ID, Team.BRAVO);
 
-      // Start combat after adding all combatants
+      // Start combat - this will use our deterministic initiative
       startCombatSession();
 
       setInitialSession(combatSession);
-      setCurrentActorId(ALICE_ID); // Alice starts
+      setCurrentActorId(ALICE_ID); // Alice always goes first
       setPhase(CombatPhase.ACTIVE);
 
       // Get initial events from the combat session creation
@@ -291,7 +327,10 @@ type ActorStatsInput = {
         {/* Center - Battlefield */}
         <div className="col-span-6">
           {phase === CombatPhase.ACTIVE ? (
-            <BattlefieldCanvas session={state.session} />
+            <BattlefieldCanvas
+              key={`battlefield-r${state.session?.data?.rounds?.current?.number || 0}-t${state.session?.data?.rounds?.current?.turns?.current?.number || 0}`}
+              session={state.session}
+            />
           ) : (
             <div className="h-full flex items-center justify-center rounded-lg" style={{ backgroundColor: '#282828', border: '2px dashed #504945' }}>
               <div className="text-center">

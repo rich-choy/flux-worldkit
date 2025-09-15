@@ -8,6 +8,7 @@ import {
   type CombatSession,
   type WorldEvent,
   type PlaceURN,
+  type SessionURN,
 } from '@flux';
 
 interface ImmutableCombatState {
@@ -35,6 +36,7 @@ export function useImmutableCombatState(
   initialSession: CombatSession | null,
   currentActorId: ActorURN | null,
   placeId: PlaceURN = 'flux:place:test',
+  sessionId?: SessionURN | null, // Add session ID parameter
 ): UseImmutableCombatStateResult {
   const [state, setState] = useState<ImmutableCombatState>({
     session: initialSession || null as any
@@ -69,8 +71,16 @@ export function useImmutableCombatState(
     // Update React state with immutable session
     setState(newState);
 
+    // Debug logging to see if state is updating
+    console.log('🔄 useImmutableCombatState: State updated, session ID:', newSession.id);
+    if (newSession.data?.combatants) {
+      for (const [actorId, combatant] of newSession.data.combatants) {
+        console.log(`  ${actorId}: position ${combatant.position.coordinate}m`);
+      }
+    }
+
     return { result, newState };
-  }, [state, context]);
+  }, [state, context, currentActorId, placeId, sessionId]); // Add sessionId to dependencies
 
   const executeCommand = useCallback((command: string): WorldEvent[] => {
     // Return early if not initialized
@@ -82,18 +92,19 @@ export function useImmutableCombatState(
         const commandEvents: WorldEvent[] = [];
 
         // Create a context wrapper that captures events for this command
-        const contextWithEventCapture = {
-          ...ctx,
-          declareEvent: (event: WorldEvent) => {
-            // Call the original declareEvent to maintain normal behavior
-            ctx.declareEvent(event);
-            // Also capture the event for our return value
-            commandEvents.push(event);
-          }
+        // Use Object.create to avoid copying frozen/sealed properties from the original context
+        const contextWithEventCapture = Object.create(ctx) as TransformerContext;
+        contextWithEventCapture.declareEvent = (event: WorldEvent) => {
+          // Call the original declareEvent to maintain normal behavior
+          ctx.declareEvent(event);
+          // Also capture the event for our return value
+          commandEvents.push(event);
         };
 
         // Use the session's built-in combatant hook with turn advancement
-        const sessionHook = useCombatSession(contextWithEventCapture, placeId, draftSession.id);
+        // Use the tracked session ID to ensure we're working with the same session
+        const actualSessionId = sessionId || draftSession.id;
+        const sessionHook = useCombatSession(contextWithEventCapture, placeId, actualSessionId);
         const combatantHook = sessionHook.useCombatant(currentActorId);
 
         // Create intent executor with our event-capturing context
