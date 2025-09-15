@@ -2,13 +2,12 @@ import { renderHook, act } from '@testing-library/react';
 import { describe, it, expect, beforeEach } from 'vitest';
 import { useImmutableCombatState } from './useImmutableCombatState';
 import {
-  createCombatContext,
+  type TransformerContext,
   createTransformerContext,
   createCombatSession,
   createActor,
   ActorStat,
   SessionStatus,
-  type CombatContext,
   type CombatSession,
   type ActorURN,
   type PlaceURN,
@@ -17,10 +16,11 @@ import {
   Team,
   CombatFacing,
   type Actor,
+  type Combatant,
 } from '@flux';
 
 describe('useImmutableCombatState', () => {
-  let mockContext: CombatContext;
+  let mockContext!: TransformerContext;
   let mockSession: CombatSession;
   const aliceId: ActorURN = 'flux:actor:alice';
   const bobId: ActorURN = 'flux:actor:bob';
@@ -28,12 +28,11 @@ describe('useImmutableCombatState', () => {
 
   let alice: Actor;
   let bob: Actor;
-  let aliceCombatant: any;
+  let aliceCombatant: Combatant;
 
   beforeEach(() => {
     // Create test context with mocked functions
-    const transformerContext = createTransformerContext();
-    mockContext = createCombatContext(transformerContext);
+    mockContext = createTransformerContext();
 
     // Create test actors
     alice = createActor({
@@ -67,10 +66,10 @@ describe('useImmutableCombatState', () => {
     mockContext.world.actors[bobId] = bob;
 
     // Create reusable Alice combatant
-    aliceCombatant = createCombatant(alice, Team.RED, (c: any) => ({
+    aliceCombatant = createCombatant(alice, Team.ALPHA, (c: any) => ({
       ...c,
       actorId: aliceId,
-      team: Team.RED,
+      team: Team.ALPHA,
       position: { coordinate: 100, facing: CombatFacing.LEFT, speed: 0 },
       ap: { nat: { cur: 6.0, max: 6.0 }, eff: { cur: 6.0, max: 6.0 }, mods: {} },
       energy: { position: 1, nat: { cur: 100, max: 100 }, eff: { cur: 100, max: 100 }, mods: {} },
@@ -134,7 +133,7 @@ describe('useImmutableCombatState', () => {
         useImmutableCombatState(mockContext, mockSession, aliceId)
       );
 
-      let capturedContext: CombatContext | null = null;
+      let capturedContext: TransformerContext | null = null;
 
       act(() => {
         result.current.executeInDraft((_draftSession, context) => {
@@ -211,10 +210,10 @@ describe('useImmutableCombatState', () => {
       mockSession.data.combatants.set(aliceId, aliceCombatant);
 
       // Add Bob combatant to the session so "attack bob" can find the target
-      const bobCombatant = createCombatant(bob, Team.BLUE, (c: any) => ({
+      const bobCombatant = createCombatant(bob, Team.BRAVO, (c: any) => ({
         ...c,
         actorId: bobId,
-        team: Team.BLUE,
+        team: Team.BRAVO,
         position: { coordinate: 200, facing: CombatFacing.RIGHT, speed: 0 },
         ap: { nat: { cur: 5.0, max: 5.0 }, eff: { cur: 5.0, max: 5.0 }, mods: {} },
         energy: { position: 1, nat: { cur: 100, max: 100 }, eff: { cur: 100, max: 100 }, mods: {} },
@@ -445,7 +444,7 @@ describe('useImmutableCombatState', () => {
         useImmutableCombatState(mockContext, mockSession, aliceId)
       );
 
-      const capturedContexts: CombatContext[] = [];
+      const capturedContexts: TransformerContext[] = [];
 
       // Perform multiple operations and capture context each time
       act(() => {
@@ -486,7 +485,7 @@ describe('useImmutableCombatState', () => {
     it('should prove that context function calls result in mutations that propagate to draft', () => {
       // Add Alice as a combatant
       const alice = createActor({ id: aliceId, name: 'Alice' });
-      const aliceCombatant = createCombatant(alice, Team.RED, (c: any) => ({
+      const aliceCombatant = createCombatant(alice, Team.ALPHA, (c: any) => ({
         ...c,
         position: { coordinate: 100, facing: CombatFacing.LEFT, speed: 0 },
         ap: { nat: { cur: 6.0, max: 6.0 }, eff: { cur: 6.0, max: 6.0 }, mods: {} },
@@ -554,7 +553,7 @@ describe('useImmutableCombatState', () => {
     it('should prove that context random and uniqid functions work with draft mutations', () => {
       // Add Alice as a combatant
       const alice = createActor({ id: aliceId, name: 'Alice' });
-      const aliceCombatant = createCombatant(alice, Team.RED, (c: any) => ({
+      const aliceCombatant = createCombatant(alice, Team.ALPHA, (c: any) => ({
         ...c,
         position: { coordinate: 100, facing: CombatFacing.LEFT, speed: 0 },
         ap: { nat: { cur: 6.0, max: 6.0 }, eff: { cur: 6.0, max: 6.0 }, mods: {} },

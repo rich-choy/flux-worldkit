@@ -4,9 +4,10 @@ import {
   useIntentExecution as createIntentExecutor,
   useCombatSession,
   type ActorURN,
-  type CombatContext,
+  type TransformerContext,
   type CombatSession,
   type WorldEvent,
+  type PlaceURN,
 } from '@flux';
 
 interface ImmutableCombatState {
@@ -15,7 +16,7 @@ interface ImmutableCombatState {
 
 interface UseImmutableCombatStateResult {
   state: ImmutableCombatState;
-  executeInDraft: <T>(fn: (draftSession: WritableDraft<CombatSession>, context: CombatContext) => T) => { result: T; newState: ImmutableCombatState };
+  executeInDraft: <T>(fn: (draftSession: WritableDraft<CombatSession>, context: TransformerContext) => T) => { result: T; newState: ImmutableCombatState };
   executeCommand: (command: string) => WorldEvent[];
 }
 
@@ -30,9 +31,10 @@ interface UseImmutableCombatStateResult {
  * while the underlying game logic can continue using mutations for performance.
  */
 export function useImmutableCombatState(
-  context: CombatContext | null, // Context is stable and contains functions - don't draft it
+  context: TransformerContext | null, // Context is stable and contains functions - don't draft it
   initialSession: CombatSession | null,
-  currentActorId: ActorURN | null
+  currentActorId: ActorURN | null,
+  placeId: PlaceURN = 'flux:place:test',
 ): UseImmutableCombatStateResult {
   const [state, setState] = useState<ImmutableCombatState>({
     session: initialSession || null as any
@@ -47,7 +49,7 @@ export function useImmutableCombatState(
   }, [initialSession, state.session]);
 
   const executeInDraft = useCallback(<T>(
-    fn: (draftSession: WritableDraft<CombatSession>, context: CombatContext) => T
+    fn: (draftSession: WritableDraft<CombatSession>, context: TransformerContext) => T
   ): { result: T; newState: ImmutableCombatState } => {
     // Return early if not initialized
     if (!context || !state.session) {
@@ -91,7 +93,7 @@ export function useImmutableCombatState(
         };
 
         // Use the session's built-in combatant hook with turn advancement
-        const sessionHook = useCombatSession(contextWithEventCapture, contextWithEventCapture.uniqid(), draftSession.data.location, draftSession.id);
+        const sessionHook = useCombatSession(contextWithEventCapture, placeId, draftSession.id);
         const combatantHook = sessionHook.useCombatant(currentActorId);
 
         // Create intent executor with our event-capturing context
