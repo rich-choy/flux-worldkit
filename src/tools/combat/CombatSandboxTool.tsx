@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   type TransformerContext,
   createActor,
@@ -15,6 +15,7 @@ import {
   type SessionURN,
   type RollResult,
   SpecialDuration,
+  type WeaponSchema,
 } from '@flux';
 
 const CombatPhase = {
@@ -37,6 +38,58 @@ const ALICE_ID: ActorURN = 'flux:actor:alice';
 const BOB_ID: ActorURN = 'flux:actor:bob';
 const TEST_PLACE_ID: PlaceURN = 'flux:place:test-battlefield';
 
+const TEST_WEAPON_ENTITY_URN = 'flux:item:weapon:test';
+
+// Set up weapon schema for combat
+const TEST_WEAPON = createWeaponSchema({
+  name: 'Test Weapon',
+  urn: 'flux:schema:weapon:test',
+  range: { optimal: 1, max: 1 } // True 1m range melee weapon
+});
+
+type ActorShellStatsInput = {
+  pow?: number;
+  fin?: number;
+  res?: number;
+  int?: number;
+  per?: number;
+  mem?: number;
+};
+
+const createActorWithShellStats = (
+  id: ActorURN,
+  name: string,
+  weapon: WeaponSchema,
+  stats: ActorShellStatsInput,
+) => {
+  const { pow = 10, fin = 10, res = 10, int = 10, per = 10, mem = 10 } = stats;
+
+  return createActor({
+    id,
+    name,
+    stats: {
+      [ActorStat.POW]: { nat: pow, eff: pow, mods: {} },
+      [ActorStat.FIN]: { nat: fin, eff: fin, mods: {} },
+      [ActorStat.RES]: { nat: res, eff: res, mods: {} },
+      [ActorStat.INT]: { nat: int, eff: int, mods: {} },
+      [ActorStat.PER]: { nat: per, eff: per, mods: {} },
+      [ActorStat.MEM]: { nat: mem, eff: mem, mods: {} },
+    },
+    equipment: {
+      [HUMAN_ANATOMY.RIGHT_HAND]: {
+        [TEST_WEAPON_ENTITY_URN]: 1,
+      },
+    },
+    inventory: {
+      mass: 1_000,
+      ts: Date.now(),
+      items: {
+        [TEST_WEAPON_ENTITY_URN]: { id: TEST_WEAPON_ENTITY_URN, schema: weapon.urn },
+      },
+    },
+  });
+};
+
 export function CombatSandboxTool() {
   const [phase, setPhase] = useState<CombatPhase>(CombatPhase.SETUP);
   const [initialContext, setInitialContext] = useState<TransformerContext | null>(null);
@@ -45,6 +98,12 @@ export function CombatSandboxTool() {
   const [actors, setActors] = useState<Record<string, any>>({});
   const [currentActorId, setCurrentActorId] = useState<ActorURN | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
+
+  // AI control state
+  const [aiControlled, setAiControlled] = useState<Record<ActorURN, boolean>>({
+    [ALICE_ID]: false,
+    [BOB_ID]: true, // Bob is AI-controlled by default
+  });
 
   // Use our combat state hook - this replaces manual state management
   const { state, executeCommand } = useCombatState(
@@ -58,70 +117,24 @@ export function CombatSandboxTool() {
   // Use combat log hook for event management
   const { combatLog, addEvents: handleLogEvents, setLog: setCombatLog } = useCombatLog();
 
-type ActorStatsInput = {
-  pow: number;
-  fin: number;
-  res: number;
-  int?: number;
-  per?: number;
-  mem?: number;
-};
-
-  const createActorWithShellStats = (id: ActorURN, name: string, stats: ActorStatsInput) => {
-    const { pow, fin, res, int = 10, per = 10, mem = 10 } = stats;
-
-    // Following the corrected pattern from strike.spec.ts
-    const weaponEntityId = 'flux:item:weapon:test'; // Item instance URN
-    const weaponSchemaUrn = 'flux:schema:weapon:test'; // Weapon schema URN
-
-    return createActor({
-      id,
-      name,
-      stats: {
-        [ActorStat.POW]: { nat: pow, eff: pow, mods: {} },
-        [ActorStat.FIN]: { nat: fin, eff: fin, mods: {} },
-        [ActorStat.RES]: { nat: res, eff: res, mods: {} },
-        [ActorStat.INT]: { nat: int, eff: int, mods: {} },
-        [ActorStat.PER]: { nat: per, eff: per, mods: {} },
-        [ActorStat.MEM]: { nat: mem, eff: mem, mods: {} },
-      },
-      equipment: {
-        [HUMAN_ANATOMY.RIGHT_HAND]: {
-          [weaponEntityId]: 1,
-        },
-      },
-      inventory: {
-        mass: 1_000,
-        ts: Date.now(),
-        items: {
-          [weaponEntityId]: { id: weaponEntityId, schema: weaponSchemaUrn },
-        },
-      },
-    });
-  };
+  // AI execution state
+  const [aiThinking, setAiThinking] = useState<ActorURN | null>(null);
 
   // Initialize actors and context (but not combat session) during setup phase
   useEffect(() => {
     try {
       const context = createTransformerContext();
-
-      // Set up weapon schema for combat
-      const testWeapon = createWeaponSchema({
-        name: 'Test Weapon',
-        urn: 'flux:schema:weapon:test',
-        range: { optimal: 1, max: 1 } // True 1m range melee weapon
-      });
       // @ts-expect-error
       context.schemaManager.getSchema = (urn: string) => {
-        if (urn === testWeapon.urn) {
-          return testWeapon;
+        if (urn === TEST_WEAPON.urn) {
+          return TEST_WEAPON;
         }
         throw new Error(`Schema not found for URN: ${urn}`);
       };
 
       // Create Alice (Red Team - POW build)
-      const alice = createActorWithShellStats(ALICE_ID, 'Alice', { pow: 10, fin: 10, res: 10, per: 10 });
-      const bob = createActorWithShellStats(BOB_ID, 'Bob', { pow: 10, fin: 10, res: 10 });
+      const alice = createActorWithShellStats(ALICE_ID, 'Alice', TEST_WEAPON, { pow: 10, fin: 10, res: 10, per: 10 });
+      const bob = createActorWithShellStats(BOB_ID, 'Bob', TEST_WEAPON, { pow: 10, fin: 10, res: 10 });
 
       // Add actors to context
       context.world.actors[ALICE_ID] = alice;
@@ -186,6 +199,9 @@ type ActorStatsInput = {
       setCurrentActorId(ALICE_ID); // Alice always goes first
       setPhase(CombatPhase.ACTIVE);
 
+      combatSession.data.combatants.get(ALICE_ID)!.target = BOB_ID;
+      combatSession.data.combatants.get(BOB_ID)!.target = ALICE_ID;
+
       // Get initial events from the combat session creation
       const initialEvents = initialContext.getDeclaredEvents();
       setCombatLog(initialEvents);
@@ -213,25 +229,94 @@ type ActorStatsInput = {
   };
 
   const handleTurnAdvance = (newActorId: ActorURN) => {
+    console.log('🎮 handleTurnAdvance called:', { from: currentActorId, to: newActorId });
     setCurrentActorId(newActorId);
   };
 
+  // Handle AI toggle for combatants
+  const handleAiToggle = (actorId: ActorURN, enabled: boolean) => {
+    setAiControlled(prev => ({
+      ...prev,
+      [actorId]: enabled
+    }));
+  };
+
+
   // Enhanced executeCommand that integrates with our immutable state
-  const handleCommand = (command: string) => {
+  const handleCommand = useCallback((command: string) => {
     try {
       const events = executeCommand(command);
       handleLogEvents(events);
 
       // Check for turn advancement in the events
       const turnStartEvent = events.find(event => event.type === EventType.COMBAT_TURN_DID_START);
+      console.log('🎮 Turn start event found:', turnStartEvent);
+      console.log('🎮 Current actor ID:', currentActorId);
 
       if (turnStartEvent && turnStartEvent.actor !== currentActorId) {
+        console.log('🎮 Advancing turn from', currentActorId, 'to', turnStartEvent.actor);
         handleTurnAdvance(turnStartEvent.actor!);
+      } else if (turnStartEvent) {
+        console.log('🎮 Turn event found but not advancing (same actor or other reason)');
       }
     } catch (error) {
       throw error;
     }
-  };
+  }, [executeCommand, handleLogEvents, currentActorId, handleTurnAdvance]);
+
+  // AI auto-execution effect - placed after handleCommand definition
+  useEffect(() => {
+    console.log('🔍 AI useEffect triggered:', {
+      phase,
+      currentActorId,
+      aiControlled,
+      aiThinking,
+      isCurrentActorAI: currentActorId ? aiControlled[currentActorId] : false
+    });
+
+    // Only execute AI actions during active combat
+    if (phase !== CombatPhase.ACTIVE || !currentActorId) {
+      console.log('🔍 Early return: phase or currentActorId check failed');
+      return;
+    }
+
+    // Check if current actor is AI-controlled
+    const isCurrentActorAI = aiControlled[currentActorId];
+    if (!isCurrentActorAI) {
+      console.log('🔍 Early return: current actor is not AI-controlled');
+      return;
+    }
+
+    // Prevent multiple executions for the same turn
+    if (aiThinking === currentActorId) {
+      console.log('🔍 Early return: AI already thinking for this actor');
+      return;
+    }
+
+    console.log('🤖 Setting up AI execution for', currentActorId);
+
+    // Set AI thinking state and execute after a brief delay for UX
+    setAiThinking(currentActorId);
+
+    const aiExecutionTimer = setTimeout(() => {
+      try {
+        console.log(`🤖 AI executing turn for ${currentActorId}`);
+        handleCommand("attack");
+        console.log(`🤖 AI command execution completed`);
+      } catch (error) {
+        console.error('AI execution failed:', error);
+      } finally {
+        // Clear AI thinking state after execution
+        setAiThinking(null);
+      }
+    }, 1000); // 1 second delay for better UX
+
+    // Cleanup timer on unmount or dependency change
+    return () => {
+      clearTimeout(aiExecutionTimer);
+      setAiThinking(null);
+    };
+  }, [currentActorId, aiControlled, phase]); // Removed aiThinking from dependencies to prevent loop
 
   // Get current combatant from immutable state
   const getCurrentCombatant = () => {
@@ -311,6 +396,9 @@ type ActorStatsInput = {
                 team={setupActor.team}
                 isEditable={true}
                 onStatChange={updateActorStat}
+                isAiControlled={aiControlled[setupActor.actorId] || false}
+                onAiToggle={handleAiToggle}
+                isAiThinking={aiThinking === setupActor.actorId}
               />
             ))
           ) : (
@@ -320,6 +408,9 @@ type ActorStatsInput = {
                 combatant={combatant}
                 actor={actors[combatant.actorId]}
                 isActive={combatant.actorId === currentActorId}
+                isAiControlled={aiControlled[combatant.actorId] || false}
+                onAiToggle={handleAiToggle}
+                isAiThinking={aiThinking === combatant.actorId}
               />
             ))
           )}

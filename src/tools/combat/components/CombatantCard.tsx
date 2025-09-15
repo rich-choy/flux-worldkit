@@ -9,6 +9,10 @@ interface CombatantCardProps {
   team?: Team;
   isEditable?: boolean;
   onStatChange?: (actorId: ActorURN, stat: ActorStat, value: number) => void;
+  // AI control props
+  isAiControlled?: boolean;
+  onAiToggle?: (actorId: ActorURN, enabled: boolean) => void;
+  isAiThinking?: boolean;
 }
 
 function formatJoules(energy: number) {
@@ -21,7 +25,10 @@ export function CombatantCard({
   isActive = false,
   team,
   isEditable = false,
-  onStatChange
+  onStatChange,
+  isAiControlled = false,
+  onAiToggle,
+  isAiThinking = false
 }: CombatantCardProps) {
   // Use team from combatant if available, otherwise use passed team prop
   const actualTeam = combatant?.team || team || Team.BRAVO;
@@ -57,6 +64,13 @@ export function CombatantCard({
     }
   };
 
+  // Handle AI toggle
+  const handleAiToggle = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (onAiToggle && actor?.id) {
+      onAiToggle(actor.id as ActorURN, e.target.checked);
+    }
+  };
+
 
   return (
     <div
@@ -69,12 +83,43 @@ export function CombatantCard({
     >
       {/* Header */}
       <div className="mb-3">
-        <h3 className="font-semibold text-lg" style={{ color: colors.text }}>
-          {actorName}
-        </h3>
-        <p className="text-sm" style={{ color: '#a89984' }}>
-          {teamName}{isActive ? ' - Active Turn' : ''}
-        </p>
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-lg" style={{ color: colors.text }}>
+              {actorName}
+            </h3>
+            <p className="text-sm" style={{ color: '#a89984' }}>
+              {teamName}{isActive ? ' - Active Turn' : ''}
+            </p>
+          </div>
+
+          {/* AI Control Checkbox */}
+          <div className="flex items-center space-x-2">
+            <label
+              className="flex items-center space-x-2 cursor-pointer"
+              style={{ fontFamily: 'Zilla Slab' }}
+            >
+              <input
+                type="checkbox"
+                checked={isAiControlled}
+                onChange={handleAiToggle}
+                className="w-4 h-4 rounded border-2 focus:ring-2 focus:ring-offset-0 transition-colors"
+                style={{
+                  accentColor: colors.border,
+                  borderColor: '#504945'
+                }}
+              />
+              <span
+                className="text-sm font-medium select-none"
+                style={{
+                  color: isAiControlled ? colors.text : '#a89984'
+                }}
+              >
+                {isAiThinking ? 'AI Thinking...' : 'AI'}
+              </span>
+            </label>
+          </div>
+        </div>
       </div>
 
       {/* Stats */}
