@@ -138,7 +138,6 @@ type ActorStatsInput = {
       const { session: combatSession, addCombatant, startCombat: startCombatSession } = useCombatSession(
         initialContext,
         TEST_PLACE_ID,
-        'flux:session:combat:12345',
       );
 
       addCombatant(ALICE_ID, Team.ALPHA);
