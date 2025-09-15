@@ -24,8 +24,8 @@ export function CombatantCard({
   onStatChange
 }: CombatantCardProps) {
   // Use team from combatant if available, otherwise use passed team prop
-  const actualTeam = combatant?.team || team || Team.RED;
-  const teamColor = actualTeam === Team.RED ? 'red' : 'blue';
+  const actualTeam = combatant?.team || team || Team.BRAVO;
+  const teamColor = actualTeam === Team.BRAVO ? 'red' : 'blue';
   const teamColorClasses = {
     red: {
       border: '#fb4934',
@@ -47,7 +47,7 @@ export function CombatantCard({
 
   // Get actor name from ID
   const actorName = actor?.name || (combatant?.actorId || actor?.id)?.split(':').pop() || 'Unknown';
-  const teamName = actualTeam === Team.RED ? 'Red Team' : 'Blue Team';
+  const teamName = actualTeam === Team.BRAVO ? 'Red Team' : 'Blue Team';
 
   // Handle stat changes during setup
   const handleStatChange = (stat: ActorStat) => (e: React.ChangeEvent<HTMLInputElement>) => {

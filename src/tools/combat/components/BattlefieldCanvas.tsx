@@ -68,7 +68,7 @@ export function BattlefieldCanvas({ session, width = 560, height = 200 }: Battle
         const y = battlefieldY + 60;
 
         // Team colors - using worldkit color scheme
-        const color = combatant.team === Team.RED ? '#ef4444' : '#3b82f6'; // red-500 : blue-500
+        const color = combatant.team === Team.BRAVO ? '#ef4444' : '#3b82f6'; // red-500 : blue-500
 
         // Chevron direction based on facing
         const chevron = combatant.position.facing === CombatFacing.RIGHT ? '>' : '<';
