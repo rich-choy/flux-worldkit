@@ -29,7 +29,7 @@ import { BattlefieldCanvas } from './components/BattlefieldCanvas';
 import { CommandInput } from './components/CommandInput';
 import { CombatantCard } from './components/CombatantCard';
 import { CombatLog } from './components/CombatLog';
-import { useImmutableCombatState } from './hooks/useImmutableCombatState';
+import { useCombatState } from './hooks/useCombatState';
 import { useCombatLog } from './hooks/useCombatLog';
 
 // Test actor IDs and place
@@ -46,8 +46,8 @@ export function CombatSandboxTool() {
   const [currentActorId, setCurrentActorId] = useState<ActorURN | null>(null);
   const [isInitialized, setIsInitialized] = useState(false);
 
-  // Use our immutable combat state hook - this replaces manual state management
-  const { state, executeCommand } = useImmutableCombatState(
+  // Use our combat state hook - this replaces manual state management
+  const { state, executeCommand } = useCombatState(
     initialContext,
     initialSession,
     currentActorId,
@@ -222,9 +222,15 @@ type ActorStatsInput = {
       const events = executeCommand(command);
       handleLogEvents(events);
 
+      console.log('🎮 Events from command:', events.map(e => ({ type: e.type, actor: e.actor })));
+      console.log('🎮 Current actor ID before check:', currentActorId);
+
       // Check for turn advancement in the events
       const turnStartEvent = events.find(event => event.type === EventType.COMBAT_TURN_DID_START);
+      console.log('🎮 Turn start event found:', turnStartEvent);
+
       if (turnStartEvent && turnStartEvent.actor !== currentActorId) {
+        console.log('🎮 Advancing turn from', currentActorId, 'to', turnStartEvent.actor);
         handleTurnAdvance(turnStartEvent.actor!);
       }
     } catch (error) {
