@@ -222,15 +222,10 @@ type ActorStatsInput = {
       const events = executeCommand(command);
       handleLogEvents(events);
 
-      console.log('🎮 Events from command:', events.map(e => ({ type: e.type, actor: e.actor })));
-      console.log('🎮 Current actor ID before check:', currentActorId);
-
       // Check for turn advancement in the events
       const turnStartEvent = events.find(event => event.type === EventType.COMBAT_TURN_DID_START);
-      console.log('🎮 Turn start event found:', turnStartEvent);
 
       if (turnStartEvent && turnStartEvent.actor !== currentActorId) {
-        console.log('🎮 Advancing turn from', currentActorId, 'to', turnStartEvent.actor);
         handleTurnAdvance(turnStartEvent.actor!);
       }
     } catch (error) {

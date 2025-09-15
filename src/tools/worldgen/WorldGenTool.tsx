@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Controls } from '~/tools/worldgen/components/Controls';
 import { Viewport } from '~/tools/worldgen/components/Viewport';
-import { useWorldGeneration } from '~/hooks/useWorldGeneration';
+import { useWorldGeneration } from './/hooks/useWorldGeneration';
 import type { WorldGenerationResult, WorldGenerationConfig } from '~/worldgen/types';
 
 export type ViewMode = 'graph' | 'analysis';

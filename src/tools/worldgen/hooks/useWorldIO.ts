@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react';
-import type { WorldGenerationResult } from '../worldgen/types';
-import { downloadJSONL, exportWorldToJSONL } from '../worldgen/export';
-import { reconstructWorldFromJSONL } from '../worldgen/import';
+import type { WorldGenerationResult } from '~/worldgen/types';
+import { downloadJSONL, exportWorldToJSONL } from '~/worldgen/export';
+import { reconstructWorldFromJSONL } from '~/worldgen/import';
 
 interface UseWorldIOReturn {
   exportWorld: (world: WorldGenerationResult, seed: number) => Promise<void>

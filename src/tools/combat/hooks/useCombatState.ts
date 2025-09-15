@@ -59,11 +59,6 @@ export function useCombatState(
       const sessionHook = useCombatSession(context, placeId, actualSessionId);
       const combatantHook = sessionHook.useCombatant(currentActorId);
 
-      // Debug: Check context state
-      console.log('🔍 Context actors before intent execution:', Object.keys(context.world.actors));
-      console.log('🔍 Current actor ID:', currentActorId);
-      console.log('🔍 Session combatants:', Array.from(state.session.data.combatants.keys()));
-
       // Stub declareEvent to capture events
       const originalDeclareEvent = context.declareEvent;
       context.declareEvent = (event: WorldEvent) => {
@@ -93,17 +88,7 @@ export function useCombatState(
           session: prev.session, // Same session object, but mutated
           eventCount: eventsAfter
         }));
-
-        // Debug logging
-        console.log('🔄 useCombatState: State updated, session ID:', state.session.id);
-        if (state.session.data?.combatants) {
-          for (const [actorId, combatant] of state.session.data.combatants) {
-            console.log(`  ${actorId}: position ${combatant.position.coordinate}m`);
-          }
-        }
       }
-
-      console.log('📡 Events captured:', capturedEvents.map(e => ({ type: e.type, actor: e.actor })));
 
       return capturedEvents;
     } catch (error) {
