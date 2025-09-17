@@ -1,30 +1,13 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import {
-  type TransformerContext,
-  createActor,
-  createTransformerContext,
-  type CombatSession,
   type ActorURN,
   type PlaceURN,
   Team,
-  useCombatSession,
-  ActorStat,
   EventType,
-  HUMAN_ANATOMY,
   createWeaponSchema,
-  type SessionURN,
-  type RollResult,
-  SpecialDuration,
-  type WeaponSchema,
+  DEFAULT_COMBAT_PLANNING_DEPS,
+  generateCombatPlan,
 } from '@flux';
-
-const CombatPhase = {
-  SETUP: 'setup',
-  ACTIVE: 'active',
-  ENDED: 'ended'
-} as const;
-
-type CombatPhase = typeof CombatPhase[keyof typeof CombatPhase];
 
 import { BattlefieldCanvas } from './components/BattlefieldCanvas';
 import { CommandInput } from './components/CommandInput';
@@ -32,13 +15,12 @@ import { CombatantCard } from './components/CombatantCard';
 import { CombatLog } from './components/CombatLog';
 import { useCombatState } from './hooks/useCombatState';
 import { useCombatLog } from './hooks/useCombatLog';
+import { useCombatSandbox } from './hooks/useCombatSandbox';
 
 // Test actor IDs and place
 const ALICE_ID: ActorURN = 'flux:actor:alice';
 const BOB_ID: ActorURN = 'flux:actor:bob';
 const TEST_PLACE_ID: PlaceURN = 'flux:place:test-battlefield';
-
-const TEST_WEAPON_ENTITY_URN = 'flux:item:weapon:test';
 
 // Set up weapon schema for combat
 const TEST_WEAPON = createWeaponSchema({
@@ -47,202 +29,27 @@ const TEST_WEAPON = createWeaponSchema({
   range: { optimal: 1, max: 1 } // True 1m range melee weapon
 });
 
-type ActorShellStatsInput = {
-  pow?: number;
-  fin?: number;
-  res?: number;
-  int?: number;
-  per?: number;
-  mem?: number;
-};
-
-const createActorWithShellStats = (
-  id: ActorURN,
-  name: string,
-  weapon: WeaponSchema,
-  stats: ActorShellStatsInput,
-) => {
-  const { pow = 10, fin = 10, res = 10, int = 10, per = 10, mem = 10 } = stats;
-
-  return createActor({
-    id,
-    name,
-    stats: {
-      [ActorStat.POW]: { nat: pow, eff: pow, mods: {} },
-      [ActorStat.FIN]: { nat: fin, eff: fin, mods: {} },
-      [ActorStat.RES]: { nat: res, eff: res, mods: {} },
-      [ActorStat.INT]: { nat: int, eff: int, mods: {} },
-      [ActorStat.PER]: { nat: per, eff: per, mods: {} },
-      [ActorStat.MEM]: { nat: mem, eff: mem, mods: {} },
-    },
-    equipment: {
-      [HUMAN_ANATOMY.RIGHT_HAND]: {
-        [TEST_WEAPON_ENTITY_URN]: 1,
-      },
-    },
-    inventory: {
-      mass: 1_000,
-      ts: Date.now(),
-      items: {
-        [TEST_WEAPON_ENTITY_URN]: { id: TEST_WEAPON_ENTITY_URN, schema: weapon.urn },
-      },
-    },
-  });
-};
-
 export function CombatSandboxTool() {
-  const [phase, setPhase] = useState<CombatPhase>(CombatPhase.SETUP);
-  const [initialContext, setInitialContext] = useState<TransformerContext | null>(null);
-  const [initialSession, setInitialSession] = useState<CombatSession | null>(null);
-  const [sessionId, setSessionId] = useState<SessionURN | null>(null);
-  const [actors, setActors] = useState<Record<string, any>>({});
-  const [currentActorId, setCurrentActorId] = useState<ActorURN | null>(null);
-  const [isInitialized, setIsInitialized] = useState(false);
+  // Use our clean, well-tested hook for all state management
+  const { state, actions } = useCombatSandbox(ALICE_ID, BOB_ID, TEST_PLACE_ID, TEST_WEAPON);
 
-  // AI control state
-  const [aiControlled, setAiControlled] = useState<Record<ActorURN, boolean>>({
-    [ALICE_ID]: false,
-    [BOB_ID]: true, // Bob is AI-controlled by default
-  });
-
-  // Use our combat state hook - this replaces manual state management
-  const { state, executeCommand } = useCombatState(
-    initialContext,
-    initialSession,
-    currentActorId,
-    TEST_PLACE_ID, // Use the same placeId as in startCombat
-    sessionId      // Pass the captured session ID
+  // Use our combat state hook for command execution
+  const { state: combatState, executeCommand } = useCombatState(
+    state.initialContext,
+    state.initialSession,
+    state.currentActorId,
+    TEST_PLACE_ID,
+    state.sessionId
   );
 
   // Use combat log hook for event management
-  const { combatLog, addEvents: handleLogEvents, setLog: setCombatLog } = useCombatLog();
+  const { combatLog, addEvents: handleLogEvents } = useCombatLog();
 
-  // AI execution state
-  const [aiThinking, setAiThinking] = useState<ActorURN | null>(null);
-
-  // Initialize actors and context (but not combat session) during setup phase
-  useEffect(() => {
-    try {
-      const context = createTransformerContext();
-      // @ts-expect-error
-      context.schemaManager.getSchema = (urn: string) => {
-        if (urn === TEST_WEAPON.urn) {
-          return TEST_WEAPON;
-        }
-        throw new Error(`Schema not found for URN: ${urn}`);
-      };
-
-      // Create Alice (Red Team - POW build)
-      const alice = createActorWithShellStats(ALICE_ID, 'Alice', TEST_WEAPON, { pow: 10, fin: 10, res: 10, per: 10 });
-      const bob = createActorWithShellStats(BOB_ID, 'Bob', TEST_WEAPON, { pow: 10, fin: 10, res: 10 });
-
-      // Add actors to context
-      context.world.actors[ALICE_ID] = alice;
-      context.world.actors[BOB_ID] = bob;
-
-      setInitialContext(context);
-      setActors({ [ALICE_ID]: alice, [BOB_ID]: bob });
-      setIsInitialized(true);
-    } catch (error) {
-      console.error('❌ Combat initialization failed:', error);
-    }
-  }, []);
+  // Track AI execution to prevent loops
+  const aiExecutingRef = useRef<ActorURN | null>(null);
 
 
-  // Function to start combat - creates session and transitions to active phase
-  const startCombat = () => {
-    if (!initialContext || phase !== CombatPhase.SETUP) return;
-
-    try {
-      // Create deterministic initiative to ensure Alice always goes first
-      const aliceInitiative: RollResult = {
-        dice: '1d20' as const,
-        values: [20],
-        mods: { perception: { type: 'flux:modifier:initiative:per', origin: { type: 'flux:stat:per', actor: 'self' }, value: 0, duration: SpecialDuration.PERMANENT } },
-        natural: 20,
-        result: 20
-      };
-      const bobInitiative: RollResult = {
-        dice: '1d20' as const,
-        values: [1],
-        mods: { perception: { type: 'flux:modifier:initiative:per', origin: { type: 'flux:stat:per', actor: 'self' }, value: 0, duration: SpecialDuration.PERMANENT } },
-        natural: 1,
-        result: 1
-      };
-
-      const deterministicInitiative = new Map<ActorURN, RollResult>([
-        [ALICE_ID, aliceInitiative],
-        [BOB_ID, bobInitiative]
-      ]);
-
-      // Create session with deterministic initiative using the proper abstraction
-      // Note: The @flux package may not have the updated useCombatSession signature yet
-      // For now, we'll create the session and then override the initiative
-      const { session: combatSession, addCombatant, startCombat: startCombatSession } = useCombatSession(
-        initialContext,
-        TEST_PLACE_ID,
-        undefined, // sessionId
-        undefined, // battlefield
-        deterministicInitiative,
-      );
-
-      // Capture the session ID that was created
-      setSessionId(combatSession.id);
-
-      addCombatant(ALICE_ID, Team.ALPHA);
-      addCombatant(BOB_ID, Team.BRAVO);
-
-      // Start combat - this will use our deterministic initiative
-      startCombatSession();
-
-      setInitialSession(combatSession);
-      setCurrentActorId(ALICE_ID); // Alice always goes first
-      setPhase(CombatPhase.ACTIVE);
-
-      combatSession.data.combatants.get(ALICE_ID)!.target = BOB_ID;
-      combatSession.data.combatants.get(BOB_ID)!.target = ALICE_ID;
-
-      // Get initial events from the combat session creation
-      const initialEvents = initialContext.getDeclaredEvents();
-      setCombatLog(initialEvents);
-    } catch (error) {
-      console.error('❌ Combat start failed:', error);
-    }
-  };
-
-  // Function to update actor stats during setup phase
-  const updateActorStat = (actorId: ActorURN, stat: ActorStat, value: number) => {
-    if (phase !== CombatPhase.SETUP || !initialContext) return;
-
-    // Update the actor in the context directly
-    const actor = initialContext.world.actors[actorId];
-    if (actor && actor.stats[stat]) {
-      actor.stats[stat].nat = value;
-      actor.stats[stat].eff = value;
-
-      // Update local state to trigger re-render
-      setActors(prev => ({
-        ...prev,
-        [actorId]: { ...actor }
-      }));
-    }
-  };
-
-  const handleTurnAdvance = (newActorId: ActorURN) => {
-    console.log('🎮 handleTurnAdvance called:', { from: currentActorId, to: newActorId });
-    setCurrentActorId(newActorId);
-  };
-
-  // Handle AI toggle for combatants
-  const handleAiToggle = (actorId: ActorURN, enabled: boolean) => {
-    setAiControlled(prev => ({
-      ...prev,
-      [actorId]: enabled
-    }));
-  };
-
-
-  // Enhanced executeCommand that integrates with our immutable state
+  // Enhanced executeCommand that integrates with our hook-based state
   const handleCommand = useCallback((command: string) => {
     try {
       const events = executeCommand(command);
@@ -250,81 +57,117 @@ export function CombatSandboxTool() {
 
       // Check for turn advancement in the events
       const turnStartEvent = events.find(event => event.type === EventType.COMBAT_TURN_DID_START);
-      console.log('🎮 Turn start event found:', turnStartEvent);
-      console.log('🎮 Current actor ID:', currentActorId);
 
-      if (turnStartEvent && turnStartEvent.actor !== currentActorId) {
-        console.log('🎮 Advancing turn from', currentActorId, 'to', turnStartEvent.actor);
-        handleTurnAdvance(turnStartEvent.actor!);
-      } else if (turnStartEvent) {
-        console.log('🎮 Turn event found but not advancing (same actor or other reason)');
+      if (turnStartEvent && turnStartEvent.actor !== state.currentActorId) {
+        actions.handleTurnAdvance(turnStartEvent.actor!);
       }
     } catch (error) {
       throw error;
     }
-  }, [executeCommand, handleLogEvents, currentActorId, handleTurnAdvance]);
+  }, [executeCommand, handleLogEvents, state.currentActorId, actions]);
 
-  // AI auto-execution effect - placed after handleCommand definition
+  // AI auto-execution effect
   useEffect(() => {
-    console.log('🔍 AI useEffect triggered:', {
-      phase,
-      currentActorId,
-      aiControlled,
-      aiThinking,
-      isCurrentActorAI: currentActorId ? aiControlled[currentActorId] : false
-    });
-
     // Only execute AI actions during active combat
-    if (phase !== CombatPhase.ACTIVE || !currentActorId) {
-      console.log('🔍 Early return: phase or currentActorId check failed');
+    if (state.phase !== 'active' || !state.currentActorId) {
+      aiExecutingRef.current = null;
       return;
     }
 
     // Check if current actor is AI-controlled
-    const isCurrentActorAI = aiControlled[currentActorId];
+    const isCurrentActorAI = state.aiControlled[state.currentActorId];
     if (!isCurrentActorAI) {
-      console.log('🔍 Early return: current actor is not AI-controlled');
+      aiExecutingRef.current = null;
       return;
     }
 
-    // Prevent multiple executions for the same turn
-    if (aiThinking === currentActorId) {
-      console.log('🔍 Early return: AI already thinking for this actor');
+    // Prevent multiple executions for the same turn using ref
+    if (aiExecutingRef.current === state.currentActorId) {
       return;
     }
 
-    console.log('🤖 Setting up AI execution for', currentActorId);
-
-    // Set AI thinking state and execute after a brief delay for UX
-    setAiThinking(currentActorId);
+    // Mark this actor as executing and set AI thinking state
+    aiExecutingRef.current = state.currentActorId;
+    actions.setAiThinking(state.currentActorId);
 
     const aiExecutionTimer = setTimeout(() => {
       try {
-        console.log(`🤖 AI executing turn for ${currentActorId}`);
-        handleCommand("attack");
-        console.log(`🤖 AI command execution completed`);
+        // Use AI planning system directly with stubbed dependencies
+        if (state.initialContext && combatState.session && state.currentActorId) {
+          const currentCombatant = combatState.session.data.combatants.get(state.currentActorId);
+          if (currentCombatant) {
+            // Create stubbed dependencies like in the integration tests
+            const stubbedDeps = {
+              ...DEFAULT_COMBAT_PLANNING_DEPS,
+              calculateWeaponApCost: () => 2, // 2 AP for any weapon strike
+            };
+
+            // Generate AI plan with stubbed dependencies
+            const aiPlan = generateCombatPlan(
+              state.initialContext,
+              combatState.session,
+              currentCombatant,
+              `ai-turn-${state.currentActorId}`,
+              stubbedDeps
+            );
+
+            // Execute the first action from the AI plan
+            if (aiPlan.length > 0) {
+              const firstAction = aiPlan[0];
+              let command = firstAction.command.toLowerCase();
+
+              // Convert AI action to command string
+              if (firstAction.command === 'STRIKE' && firstAction.args?.target) {
+                command = `attack ${firstAction.args.target.split(':').pop()}`;
+              } else if (firstAction.command === 'ADVANCE') {
+                const distance = firstAction.args?.distance || 10;
+                command = `advance ${distance}`;
+              } else if (firstAction.command === 'RETREAT') {
+                const distance = firstAction.args?.distance || 10;
+                command = `retreat ${distance}`;
+              } else if (firstAction.command === 'DEFEND') {
+                command = 'defend';
+              } else if (firstAction.command === 'TARGET' && firstAction.args?.target) {
+                command = `target ${firstAction.args.target.split(':').pop()}`;
+              }
+
+              handleCommand(command);
+            } else {
+              handleCommand("attack");
+            }
+          }
+        } else {
+          handleCommand("attack");
+        }
       } catch (error) {
         console.error('AI execution failed:', error);
+        try {
+          handleCommand("attack");
+        } catch (fallbackError) {
+          console.error('Fallback attack also failed:', fallbackError);
+        }
       } finally {
-        // Clear AI thinking state after execution
-        setAiThinking(null);
+        // Clear AI thinking state and execution tracking after execution
+        actions.setAiThinking(null);
+        aiExecutingRef.current = null;
       }
     }, 1000); // 1 second delay for better UX
 
     // Cleanup timer on unmount or dependency change
     return () => {
       clearTimeout(aiExecutionTimer);
-      setAiThinking(null);
+      actions.setAiThinking(null);
+      aiExecutingRef.current = null;
     };
-  }, [currentActorId, aiControlled, phase]); // Removed aiThinking from dependencies to prevent loop
+  }, [state.currentActorId, state.aiControlled, state.phase, actions, handleCommand, combatState.session, state.initialContext]);
 
   // Get current combatant from immutable state
   const getCurrentCombatant = () => {
-    if (!currentActorId || !state.session) return null;
-    return state.session.data?.combatants?.get(currentActorId) || null;
+    if (!state.currentActorId || !combatState.session) return null;
+    return combatState.session.data?.combatants?.get(state.currentActorId) || null;
   };
 
-  if (!isInitialized) {
+  if (!state.isInitialized) {
     return (
       <div className="combat-sandbox-tool h-full flex flex-col">
         <div className="flex-1 flex items-center justify-center bg-gray-50">
@@ -338,13 +181,13 @@ export function CombatSandboxTool() {
   }
 
   // Handle setup vs active phase data
-  const combatants = phase === CombatPhase.ACTIVE && state.session
-    ? Array.from(state.session.data.combatants.values())
+  const combatants = state.phase === 'active' && combatState.session
+    ? Array.from(combatState.session.data.combatants.values())
     : [];
   const currentCombatant = getCurrentCombatant();
 
   // For setup phase, create mock combatants from actors
-  const setupActors = phase === CombatPhase.SETUP
+  const setupActors = state.phase === 'setup'
     ? [
         { actorId: ALICE_ID, team: Team.ALPHA },
         { actorId: BOB_ID, team: Team.BRAVO }
@@ -358,10 +201,10 @@ export function CombatSandboxTool() {
         <div className="flex justify-between items-center">
           <h1 className="text-xl font-semibold" style={{ color: '#ebdbb2', fontFamily: 'Zilla Slab' }}>Combat Sandbox</h1>
           <div className="text-sm" style={{ color: '#a89984', fontFamily: 'Zilla Slab' }}>
-            {phase === CombatPhase.SETUP ? (
+            {state.phase === 'setup' ? (
               'Setup Phase - Customize actors before combat'
             ) : (
-              `Turn ${state.session?.data.rounds.current.number} - ${actors[currentActorId!]?.name || 'Unknown'} (${currentCombatant?.ap.eff.cur.toFixed(1) || 0} AP remaining)`
+              `Turn ${combatState.session?.data.rounds.current.number} - ${state.actors[state.currentActorId!]?.name || 'Unknown'} (${currentCombatant?.ap.eff.cur.toFixed(1) || 0} AP remaining)`
             )}
           </div>
         </div>
@@ -374,11 +217,11 @@ export function CombatSandboxTool() {
         <div className="col-span-3 space-y-4 overflow-y-auto">
           <div className="flex justify-between items-center">
             <h2 className="text-lg font-medium" style={{ color: '#ebdbb2', fontFamily: 'Zilla Slab' }}>
-              {phase === CombatPhase.SETUP ? 'Setup Actors' : 'Combatants'}
+              {state.phase === 'setup' ? 'Setup Actors' : 'Combatants'}
             </h2>
-            {phase === CombatPhase.SETUP && (
+            {state.phase === 'setup' && (
               <button
-                onClick={startCombat}
+                onClick={actions.startCombat}
                 className="px-4 py-2 text-sm bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
                 style={{ fontFamily: 'Zilla Slab' }}
               >
@@ -387,18 +230,18 @@ export function CombatSandboxTool() {
             )}
           </div>
 
-          {phase === CombatPhase.SETUP ? (
+          {state.phase === 'setup' ? (
             setupActors.map(setupActor => (
               <CombatantCard
                 key={setupActor.actorId}
                 combatant={null}
-                actor={actors[setupActor.actorId]}
+                actor={state.actors[setupActor.actorId]}
                 team={setupActor.team}
                 isEditable={true}
-                onStatChange={updateActorStat}
-                isAiControlled={aiControlled[setupActor.actorId] || false}
-                onAiToggle={handleAiToggle}
-                isAiThinking={aiThinking === setupActor.actorId}
+                onStatChange={actions.updateActorStat}
+                isAiControlled={state.aiControlled[setupActor.actorId] || false}
+                onAiToggle={actions.handleAiToggle}
+                isAiThinking={state.aiThinking === setupActor.actorId}
               />
             ))
           ) : (
@@ -406,11 +249,11 @@ export function CombatSandboxTool() {
               <CombatantCard
                 key={combatant.actorId}
                 combatant={combatant}
-                actor={actors[combatant.actorId]}
-                isActive={combatant.actorId === currentActorId}
-                isAiControlled={aiControlled[combatant.actorId] || false}
-                onAiToggle={handleAiToggle}
-                isAiThinking={aiThinking === combatant.actorId}
+                actor={state.actors[combatant.actorId]}
+                isActive={combatant.actorId === state.currentActorId}
+                isAiControlled={state.aiControlled[combatant.actorId] || false}
+                onAiToggle={actions.handleAiToggle}
+                isAiThinking={state.aiThinking === combatant.actorId}
               />
             ))
           )}
@@ -418,10 +261,10 @@ export function CombatSandboxTool() {
 
         {/* Center - Battlefield */}
         <div className="col-span-6">
-          {phase === CombatPhase.ACTIVE ? (
+          {state.phase === 'active' ? (
             <BattlefieldCanvas
-              key={`battlefield-r${state.session?.data?.rounds?.current?.number || 0}-t${state.session?.data?.rounds?.current?.turns?.current?.number || 0}`}
-              session={state.session}
+              key={`battlefield-r${combatState.session?.data?.rounds?.current?.number || 0}-t${combatState.session?.data?.rounds?.current?.turns?.current?.number || 0}`}
+              session={combatState.session}
             />
           ) : (
             <div className="h-full flex items-center justify-center rounded-lg" style={{ backgroundColor: '#282828', border: '2px dashed #504945' }}>
@@ -440,7 +283,7 @@ export function CombatSandboxTool() {
 
         {/* Right sidebar - Command input and log */}
         <div className="col-span-3 flex flex-col space-y-4">
-          {phase === CombatPhase.ACTIVE ? (
+          {state.phase === 'active' ? (
             <>
               <CommandInput
                 onCommand={handleCommand}
@@ -469,14 +312,14 @@ export function CombatSandboxTool() {
       <div className="px-6 py-4" style={{ backgroundColor: '#282828', borderTop: '1px solid #504945' }}>
         <div className="flex justify-between items-center">
           <div className="text-sm" style={{ color: '#ebdbb2', fontFamily: 'Zilla Slab' }}>
-            {phase === CombatPhase.SETUP ? (
+            {state.phase === 'setup' ? (
               'Setup Phase: Modify stats and click "Start Combat" when ready'
             ) : (
               'Available commands: attack, defend, move closer, back away, target <actor>'
             )}
           </div>
           <div className="flex gap-2">
-            {phase === CombatPhase.ACTIVE && (
+            {state.phase === 'active' && (
               <div className="text-xs text-green-400 bg-green-900/20 px-3 py-2 rounded">
                 ✨ Turns advance automatically when AP = 0
               </div>
@@ -487,9 +330,9 @@ export function CombatSandboxTool() {
             >
               Reset Sandbox
             </button>
-            {phase === CombatPhase.ACTIVE && (
+            {state.phase === 'active' && (
               <button
-                onClick={() => setCurrentActorId(currentActorId === ALICE_ID ? BOB_ID : ALICE_ID)}
+                onClick={() => actions.handleTurnAdvance(state.currentActorId === ALICE_ID ? BOB_ID : ALICE_ID)}
                 className="px-4 py-2 text-sm bg-gray-600 text-white rounded hover:bg-gray-700"
               >
                 Switch Actor (Debug)

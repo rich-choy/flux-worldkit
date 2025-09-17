@@ -1,5 +1,9 @@
-import type { Actor, Combatant, ActorURN } from '@flux';
+import type { Actor, Combatant, ActorURN, WeaponSchema } from '@flux';
 import { CombatFacing, Team, ActorStat } from '@flux';
+import {
+  useActorInventory as createActorInventoryApi,
+  useActorEquipment as createActorEquipmentApi,
+} from '@flux';
 
 interface CombatantCardProps {
   combatant?: Combatant | null;
@@ -13,6 +17,8 @@ interface CombatantCardProps {
   isAiControlled?: boolean;
   onAiToggle?: (actorId: ActorURN, enabled: boolean) => void;
   isAiThinking?: boolean;
+  // Context for weapon schema access
+  context?: any;
 }
 
 function formatJoules(energy: number) {
@@ -28,7 +34,8 @@ export function CombatantCard({
   onStatChange,
   isAiControlled = false,
   onAiToggle,
-  isAiThinking = false
+  isAiThinking = false,
+  context
 }: CombatantCardProps) {
   // Use team from combatant if available, otherwise use passed team prop
   const actualTeam = combatant?.team || team || Team.BRAVO;
@@ -48,6 +55,7 @@ export function CombatantCard({
 
   const colors = teamColorClasses[teamColor];
 
+
   // Calculate percentages for progress bars (only for active combat)
   const apPercent = combatant ? (combatant.ap.eff.cur / combatant.ap.eff.max) * 100 : 0;
   const energyPercent = combatant ? (combatant.energy.eff.cur / combatant.energy.eff.max) * 100 : 0;
@@ -55,6 +63,33 @@ export function CombatantCard({
   // Get actor name from ID
   const actorName = actor?.name || (combatant?.actorId || actor?.id)?.split(':').pop() || 'Unknown';
   const teamName = actualTeam === Team.BRAVO ? 'Red Team' : 'Blue Team';
+
+  // Create APIs for actor data access
+  const inventoryApi = context ? createActorInventoryApi(context, actor) : null;
+  const equipmentApi = context && inventoryApi ? createActorEquipmentApi(context, inventoryApi, actor) : null;
+
+  // Get equipped weapon information using the equipment API
+  const getEquippedWeaponInfo = () => {
+    if (!equipmentApi || !context?.schemaManager) return null;
+
+    const equippedWeaponId = equipmentApi.getEquippedWeapon();
+    if (!equippedWeaponId) return null;
+
+    const inventoryItem = inventoryApi?.getItem(equippedWeaponId);
+    if (!inventoryItem) return null;
+
+    const schema = context.schemaManager.getSchema(inventoryItem.schema) as WeaponSchema;
+    if (schema) {
+      return {
+        schemaUrn: inventoryItem.schema,
+        range: schema.range
+      };
+    }
+
+    return null;
+  };
+
+  const weaponInfo = getEquippedWeaponInfo();
 
   // Handle stat changes during setup
   const handleStatChange = (stat: ActorStat) => (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -71,6 +106,10 @@ export function CombatantCard({
     }
   };
 
+  // Get HP values directly from actor (no computation needed)
+  const currentHp = actor.hp.eff.cur;
+  const maxHp = actor.hp.eff.max;
+  const healthPercentage = maxHp > 0 ? currentHp / maxHp : 0;
 
   return (
     <div
@@ -174,6 +213,25 @@ export function CombatantCard({
         </div>
       </div>
 
+      {/* Hit Points - always show */}
+      <div className="mb-3">
+        <div className="flex justify-between items-center mb-1">
+          <span className="text-sm font-medium" style={{ color: '#ebdbb2' }}>Hit Points</span>
+          <span className="text-xs" style={{ color: '#a89984' }}>
+            {currentHp}/{maxHp} HP
+          </span>
+        </div>
+        <div className="w-full rounded-full h-2" style={{ backgroundColor: '#504945' }}>
+          <div
+            className="h-2 rounded-full transition-all duration-300"
+            style={{
+              width: `${(healthPercentage * 100)}%`,
+              backgroundColor: healthPercentage > 0.5 ? '#8ec07c' : healthPercentage > 0.25 ? '#fabd2f' : '#fb4934'
+            }}
+          />
+        </div>
+      </div>
+
       {/* Action Points - only show during active combat */}
       {combatant && (
         <div className="mb-3">
@@ -233,6 +291,21 @@ export function CombatantCard({
               <span className="font-medium">Target:</span> {combatant.target.split(':').pop()}
             </div>
           )}
+        </div>
+      )}
+
+      {/* Weapon information - show if weapon is equipped */}
+      {weaponInfo && (
+        <div className="text-xs space-y-1 mb-3" style={{ color: '#a89984' }}>
+          <div>
+            <span className="font-medium">Weapon:</span> {weaponInfo.schemaUrn.split(':').pop()}
+          </div>
+          <div>
+            <span className="font-medium">Range:</span> {weaponInfo.range.optimal}m optimal
+            {weaponInfo.range.max && weaponInfo.range.max !== weaponInfo.range.optimal && (
+              <span>, {weaponInfo.range.max}m max</span>
+            )}
+          </div>
         </div>
       )}
 
