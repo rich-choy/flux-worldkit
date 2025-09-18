@@ -19,6 +19,8 @@ import {
   calculateMaxHpFromRes,
   getHealthPercentage,
   setHealthPercentage,
+  MIN_SKILL_RANK,
+  MAX_SKILL_RANK,
 } from '@flux';
 
 export type CombatPhase = 'setup' | 'active' | 'ended';
