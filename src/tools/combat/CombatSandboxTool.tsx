@@ -14,6 +14,7 @@ import {
 import { BattlefieldCanvas } from './components/BattlefieldCanvas';
 import { CommandInput } from './components/CommandInput';
 import { CombatantCard } from './components/CombatantCard';
+import { CombatantForm } from './components/CombatantForm';
 import { CombatLog } from './components/CombatLog';
 import { useCombatLog } from './hooks/useCombatLog';
 import { useCombatSandbox } from './hooks/useCombatSandbox';
@@ -261,12 +262,15 @@ export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DE
 
             {isInSetupPhase ? (
               setupActors.map(setupActor => (
-                <CombatantCard
+                <CombatantForm
                   key={setupActor.actorId}
-                  combatant={null}
                   actor={state.actors[setupActor.actorId]}
                   team={setupActor.team}
-                  isEditable={true}
+                  availableWeapons={state.availableWeapons}
+                  currentWeaponUrn={state.getActorWeapon(setupActor.actorId)}
+                  onWeaponChange={actions.updateActorWeapon}
+                  skillValues={state.getActorSkills(setupActor.actorId)}
+                  onSkillChange={actions.updateActorSkill}
                   onStatChange={actions.updateActorStat}
                   isAiControlled={state.aiControlled[setupActor.actorId] || false}
                   onAiToggle={actions.handleAiToggle}
