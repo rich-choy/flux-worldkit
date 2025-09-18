@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import {
-  useIntentExecution as createIntentExecutor,
-  useCombatSession,
+  createIntentExecutionApi,
+  createCombatSessionApi,
   type ActorURN,
   type TransformerContext,
   type CombatSession,
@@ -33,7 +33,7 @@ export function useCombatState(
   sessionId?: SessionURN | null,
 ): UseCombatStateResult {
   const [state, setState] = useState<CombatState>({
-    session: initialSession || null as any,
+    session: initialSession as any, // Will be updated when initialSession is provided
     eventCount: 0
   });
 
@@ -55,9 +55,9 @@ export function useCombatState(
       const eventsBefore = context.getDeclaredEvents().length;
 
       // Use the session's built-in combatant hook with turn advancement
-      const actualSessionId = sessionId || state.session.id;
-      const sessionHook = useCombatSession(context, placeId, actualSessionId);
-      const combatantHook = sessionHook.useCombatant(currentActorId);
+      const actualSessionId = sessionId || state.session?.id;
+      const sessionApi = createCombatSessionApi(context, placeId, actualSessionId);
+      const combatantApi = sessionApi.getCombatantApi(currentActorId);
 
       // Stub declareEvent to capture events
       const originalDeclareEvent = context.declareEvent;
@@ -68,14 +68,18 @@ export function useCombatState(
 
       try {
         // Create intent executor - session will be mutated directly
-        const intentExecutor = createIntentExecutor(
+        const intentExecutor = createIntentExecutionApi(
           context,
           state.session,
-          combatantHook
+          combatantApi
         );
 
         // Execute command - mutations happen directly on session
         intentExecutor.executeIntent(command);
+
+        // Check if turn should advance after command execution
+        const turnAdvancementEvents = intentExecutor.checkAndAdvanceTurn();
+        capturedEvents.push(...turnAdvancementEvents);
       } finally {
         // Restore original declareEvent
         context.declareEvent = originalDeclareEvent;

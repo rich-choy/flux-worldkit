@@ -1,9 +1,5 @@
 import type { Actor, Combatant, ActorURN, WeaponSchema } from '@flux';
 import { CombatFacing, Team, ActorStat } from '@flux';
-import {
-  useActorInventory as createActorInventoryApi,
-  useActorEquipment as createActorEquipmentApi,
-} from '@flux';
 
 interface CombatantCardProps {
   combatant?: Combatant | null;
@@ -65,8 +61,8 @@ export function CombatantCard({
   const teamName = actualTeam === Team.BRAVO ? 'Red Team' : 'Blue Team';
 
   // Create APIs for actor data access
-  const inventoryApi = context ? createActorInventoryApi(context, actor) : null;
-  const equipmentApi = context && inventoryApi ? createActorEquipmentApi(context, inventoryApi, actor) : null;
+  const inventoryApi = context?.inventoryApi;
+  const equipmentApi = context?.equipmentApi;
 
   // Get equipped weapon information using the equipment API
   const getEquippedWeaponInfo = () => {

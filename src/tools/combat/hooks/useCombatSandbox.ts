@@ -7,7 +7,7 @@ import {
   type ActorURN,
   type PlaceURN,
   Team,
-  useCombatSession as createCombatSessionApi,
+  createCombatSessionApi,
   ActorStat,
   type SessionURN,
   type RollResult,
@@ -74,6 +74,7 @@ const createActorWithShellStats = (
   weapon: WeaponSchema,
   stats: ActorShellStatsInput,
   location: PlaceURN,
+
 ) => {
   const { pow = 10, fin = 10, res = 10, int = 10, per = 10, mem = 10 } = stats;
 
@@ -219,7 +220,7 @@ export function useCombatSandbox(
       ]);
 
       // Create session with deterministic initiative
-      const combatSessionResult = createCombatSessionApi(
+      const combatSessionApi = createCombatSessionApi(
         initialContext,
         testPlaceId,
         undefined, // sessionId
@@ -227,7 +228,7 @@ export function useCombatSandbox(
         deterministicInitiative,
       );
 
-      const { session: combatSession, addCombatant, startCombat: startCombatSession } = combatSessionResult;
+      const { session: combatSession, addCombatant, startCombat: startCombatSession } = combatSessionApi;
 
       // Capture the session ID that was created
       if (combatSession && combatSession.id) {
