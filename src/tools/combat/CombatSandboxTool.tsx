@@ -17,7 +17,7 @@ import { CombatantCard } from './components/CombatantCard';
 import { CombatLog } from './components/CombatLog';
 import { useCombatLog } from './hooks/useCombatLog';
 import { useCombatSandbox } from './hooks/useCombatSandbox';
-import { useCombatState } from '~/tools/combat/hooks/useCombatState';
+import { useCombatState } from './hooks/useCombatState';
 
 // Test actor IDs and place
 const ALICE_ID: ActorURN = 'flux:actor:alice';
@@ -64,6 +64,9 @@ export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DE
 
     const aiExecutingRef = useRef<ActorURN | null>(null);
 
+    // Helper to determine if we're in setup phase
+    const isInSetupPhase = !state.initialSession || state.initialSession.status === 'pending';
+
     const handleCommand = useCallback((command: string) => {
       try {
         const events = executeCommand(command);
@@ -82,7 +85,7 @@ export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DE
 
     useEffect(() => {
       // Only execute AI actions during active combat
-      if (state.phase !== 'active' || !state.currentActorId) {
+      if (isInSetupPhase || !state.currentActorId) {
         aiExecutingRef.current = null;
         return;
       }
@@ -170,7 +173,7 @@ export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DE
         actions.setAiThinking(null);
         aiExecutingRef.current = null;
       };
-    }, [state.currentActorId, state.aiControlled, state.phase, actions, handleCommand, combatState.session, state.initialContext]);
+    }, [state.currentActorId, state.aiControlled, isInSetupPhase, actions, handleCommand, combatState.session, state.initialContext]);
 
     // Get current combatant from immutable state
     const getCurrentCombatant = () => {
@@ -192,13 +195,13 @@ export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DE
     }
 
     // Handle setup vs active phase data
-    const combatants = state.phase === 'active' && combatState.session
+    const combatants = !isInSetupPhase && combatState.session
       ? Array.from(combatState.session.data.combatants.values())
       : [];
     const currentCombatant = getCurrentCombatant();
 
     // For setup phase, create mock combatants from actors
-    const setupActors = state.phase === 'setup'
+    const setupActors = isInSetupPhase
       ? [
           { actorId: ALICE_ID, team: Team.ALPHA },
           { actorId: BOB_ID, team: Team.BRAVO }
@@ -212,7 +215,7 @@ export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DE
           <div className="flex justify-between items-center">
             <h1 className="text-xl font-semibold" style={{ color: '#ebdbb2', fontFamily: 'Zilla Slab' }}>Combat Sandbox</h1>
             <div className="text-sm" style={{ color: '#a89984', fontFamily: 'Zilla Slab' }}>
-              {state.phase === 'setup' ? (
+              {isInSetupPhase ? (
                 'Setup Phase - Customize actors before combat'
               ) : (
                 `Turn ${combatState.session?.data.rounds.current.number} - ${state.actors[state.currentActorId!]?.name || 'Unknown'} (${currentCombatant?.ap.eff.cur.toFixed(1) || 0} AP remaining)`
@@ -228,9 +231,9 @@ export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DE
           <div className="col-span-3 space-y-4 overflow-y-auto">
             <div className="flex justify-between items-center">
               <h2 className="text-lg font-medium" style={{ color: '#ebdbb2', fontFamily: 'Zilla Slab' }}>
-                {state.phase === 'setup' ? 'Setup Actors' : 'Combatants'}
+                {isInSetupPhase ? 'Setup Actors' : 'Combatants'}
               </h2>
-              {state.phase === 'setup' && (
+              {isInSetupPhase && (
                 <div className="flex gap-2">
                   <button
                     onClick={() => {
@@ -256,7 +259,7 @@ export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DE
               )}
             </div>
 
-            {state.phase === 'setup' ? (
+            {isInSetupPhase ? (
               setupActors.map(setupActor => (
                 <CombatantCard
                   key={setupActor.actorId}
@@ -287,7 +290,7 @@ export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DE
 
           {/* Center - Battlefield */}
           <div className="col-span-6">
-            {state.phase === 'active' ? (
+            {!isInSetupPhase ? (
               <BattlefieldCanvas
                 key={`battlefield-${state.initialContext?.getDeclaredEvents().slice(-1)[0]?.id || 'initial'}`}
                 session={combatState.session}
@@ -309,7 +312,7 @@ export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DE
 
           {/* Right sidebar - Command input and log */}
           <div className="col-span-3 flex flex-col space-y-4">
-            {state.phase === 'active' ? (
+            {!isInSetupPhase ? (
               <>
                 <CommandInput
                   onCommand={handleCommand}
@@ -339,14 +342,14 @@ export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DE
         <div className="px-6 py-4" style={{ backgroundColor: '#282828', borderTop: '1px solid #504945' }}>
           <div className="flex justify-between items-center">
             <div className="text-sm" style={{ color: '#ebdbb2', fontFamily: 'Zilla Slab' }}>
-              {state.phase === 'setup' ? (
+              {isInSetupPhase ? (
                 'Setup Phase: Modify stats and click "Start Combat" when ready'
               ) : (
                 'Available commands: attack, defend, move closer, back away, target <actor>'
               )}
             </div>
             <div className="flex gap-2">
-              {state.phase === 'active' && (
+              {!isInSetupPhase && (
                 <div className="text-xs text-green-400 bg-green-900/20 px-3 py-2 rounded">
                   ✨ Turns advance automatically when AP = 0
                 </div>
@@ -357,7 +360,7 @@ export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DE
               >
                 Reset Sandbox
               </button>
-              {state.phase === 'active' && (
+              {!isInSetupPhase && (
                 <button
                   onClick={() => actions.handleTurnAdvance(state.currentActorId === ALICE_ID ? BOB_ID : ALICE_ID)}
                   className="px-4 py-2 text-sm bg-gray-600 text-white rounded hover:bg-gray-700"

@@ -21,9 +21,8 @@ import {
   setHealthPercentage,
   MIN_SKILL_RANK,
   MAX_SKILL_RANK,
+  SessionStatus,
 } from '@flux';
-
-export type CombatPhase = 'setup' | 'active' | 'ended';
 
 export type ActorShellStatsInput = {
   pow?: number;
@@ -50,8 +49,7 @@ export type CombatScenarioData = {
 
 
 export type CombatSandboxState = {
-  // Phase management
-  phase: CombatPhase;
+  // Initialization
   isInitialized: boolean;
 
   // Core entities
@@ -67,6 +65,9 @@ export type CombatSandboxState = {
   // AI control
   aiControlled: Record<ActorURN, boolean>;
   aiThinking: ActorURN | null;
+
+  // Weapon and skill data
+  availableWeapons: Map<string, WeaponSchema>;
 };
 
 const TEST_WEAPON_ENTITY_URN = 'flux:item:weapon:test';
@@ -77,6 +78,8 @@ export type CombatSandboxActions = {
 
   // Actor management
   updateActorStat: (actorId: ActorURN, stat: ActorStat, value: number) => void;
+  updateActorWeapon: (actorId: ActorURN, weaponUrn: string) => void;
+  updateActorSkill: (actorId: ActorURN, skillUrn: string, rank: number) => void;
 
   // AI control
   handleAiToggle: (actorId: ActorURN, enabled: boolean) => void;
@@ -179,7 +182,6 @@ export function useCombatSandbox(
   );
 
   // State management
-  const [phase, setPhase] = useState<CombatPhase>('setup');
   const [initialContext, setInitialContext] = useState<TransformerContext | null>(null);
   const [initialSession, setInitialSession] = useState<CombatSession | null>(null);
   const [sessionId, setSessionId] = useState<SessionURN | null>(null);
@@ -199,30 +201,52 @@ export function useCombatSandbox(
   });
   const [aiThinking, setAiThinking] = useState<ActorURN | null>(null);
 
+  // Available weapons state
+  const [availableWeapons, setAvailableWeapons] = useState<Map<string, WeaponSchema>>(new Map());
+
+  // Helper to determine if we're in setup phase (no active session)
+  const isInSetupPhase = !initialSession || initialSession.status === SessionStatus.PENDING;
+
   // Initialize actors and context during setup phase
   useEffect(() => {
     try {
       const context = createTransformerContext();
+
+      // Set up available weapons - for now just the test weapon, but this will expand
+      const weaponMap = new Map<string, WeaponSchema>();
+      weaponMap.set(testWeapon.urn, testWeapon);
+      setAvailableWeapons(weaponMap);
+
       // @ts-expect-error - Mock schema manager for testing
       context.schemaManager.getSchema = (urn: string) => {
-        if (urn === testWeapon.urn) {
-          return testWeapon;
+        const weapon = weaponMap.get(urn);
+        if (weapon) {
+          return weapon;
         }
         throw new Error(`Schema not found for URN: ${urn}`);
       };
 
-      // Create test actors using persisted stats
+      // Create test actors using persisted stats and weapons
+      const aliceWeaponUrn = scenarioData.actors[aliceId]?.weapon || testWeapon.urn;
+      const bobWeaponUrn = scenarioData.actors[bobId]?.weapon || testWeapon.urn;
+
+      const aliceWeapon = weaponMap.get(aliceWeaponUrn);
+      const bobWeapon = weaponMap.get(bobWeaponUrn);
+
+      if (!aliceWeapon) throw new Error(`Weapon schema not found for Alice: ${aliceWeaponUrn}`);
+      if (!bobWeapon) throw new Error(`Weapon schema not found for Bob: ${bobWeaponUrn}`);
+
       const alice = createActorWithShellStats(
         aliceId,
         'Alice',
-        testWeapon,
+        aliceWeapon,
         scenarioData.actors[aliceId]?.stats || { pow: 10, fin: 10, res: 10, per: 10 },
         testPlaceId
       );
       const bob = createActorWithShellStats(
         bobId,
         'Bob',
-        testWeapon,
+        bobWeapon,
         scenarioData.actors[bobId]?.stats || { pow: 10, fin: 10, res: 10 },
         testPlaceId
       );
@@ -245,7 +269,7 @@ export function useCombatSandbox(
 
   // Function to start combat - creates session and transitions to active phase
   const startCombat = useCallback(() => {
-    if (!initialContext || phase !== 'setup') return;
+    if (!initialContext || !isInSetupPhase) return;
 
     try {
       // Create deterministic initiative to ensure Alice always goes first
@@ -318,17 +342,16 @@ export function useCombatSandbox(
       // Update state - session object is mutated, not replaced
       setInitialSession(combatSession);
       setCurrentActorId(aliceId); // Alice always goes first
-      setPhase('active');
       setEventCount(eventsAfter);
 
     } catch (error) {
       console.error('❌ Combat start failed:', error);
     }
-  }, [initialContext, phase, aliceId, bobId, testPlaceId]);
+  }, [initialContext, isInSetupPhase, aliceId, bobId, testPlaceId]);
 
   // Function to update actor stats during setup phase
   const updateActorStat = useCallback((actorId: ActorURN, stat: ActorStat, value: number) => {
-    if (phase !== 'setup' || !initialContext) return;
+    if (!isInSetupPhase || !initialContext) return;
 
     // Update the actor in the context directly
     const actor = initialContext.world.actors[actorId];
@@ -370,7 +393,7 @@ export function useCombatSandbox(
         }
       }));
     }
-  }, [phase, initialContext, setScenarioData]);
+  }, [isInSetupPhase, initialContext, setScenarioData]);
 
   const handleTurnAdvance = useCallback((newActorId: ActorURN) => {
     console.log('🎮 handleTurnAdvance called:', { from: currentActorId, to: newActorId });
@@ -397,9 +420,53 @@ export function useCombatSandbox(
     }));
   }, [setScenarioData]);
 
+  // Function to update actor weapon during setup phase
+  const updateActorWeapon = useCallback((actorId: ActorURN, weaponUrn: string) => {
+    if (!isInSetupPhase) return;
+
+    // Validate weapon exists
+    if (!availableWeapons.has(weaponUrn)) {
+      throw new Error(`Weapon schema not found: ${weaponUrn}`);
+    }
+
+    // Persist the weapon change to localStorage
+    setScenarioData((prev: CombatScenarioData) => ({
+      ...prev,
+      actors: {
+        ...prev.actors,
+        [actorId]: {
+          ...prev.actors[actorId],
+          weapon: weaponUrn
+        }
+      }
+    }));
+  }, [isInSetupPhase, availableWeapons, setScenarioData]);
+
+  // Function to update actor skill during setup phase
+  const updateActorSkill = useCallback((actorId: ActorURN, skillUrn: string, rank: number) => {
+    if (!isInSetupPhase) return;
+
+    // Validate skill rank bounds
+    const clampedRank = Math.max(MIN_SKILL_RANK, Math.min(MAX_SKILL_RANK, rank));
+
+    // Persist the skill change to localStorage
+    setScenarioData((prev: CombatScenarioData) => ({
+      ...prev,
+      actors: {
+        ...prev.actors,
+        [actorId]: {
+          ...prev.actors[actorId],
+          skills: {
+            ...prev.actors[actorId]?.skills,
+            [skillUrn]: clampedRank
+          }
+        }
+      }
+    }));
+  }, [isInSetupPhase, setScenarioData]);
+
   // Combine state and actions
   const state: CombatSandboxState = useMemo(() => ({
-    phase,
     isInitialized,
     initialContext,
     initialSession,
@@ -409,15 +476,18 @@ export function useCombatSandbox(
     eventCount,
     aiControlled,
     aiThinking,
-  }), [phase, isInitialized, initialContext, initialSession, sessionId, actors, currentActorId, eventCount, aiControlled, aiThinking]);
+    availableWeapons,
+  }), [isInitialized, initialContext, initialSession, sessionId, actors, currentActorId, eventCount, aiControlled, aiThinking, availableWeapons]);
 
   const actions: CombatSandboxActions = useMemo(() => ({
     startCombat,
     updateActorStat,
+    updateActorWeapon,
+    updateActorSkill,
     handleAiToggle,
     setAiThinking,
     handleTurnAdvance,
-  }), [startCombat, updateActorStat, handleAiToggle, handleTurnAdvance]);
+  }), [startCombat, updateActorStat, updateActorWeapon, updateActorSkill, handleAiToggle, handleTurnAdvance]);
 
   return { state, actions };
 }
