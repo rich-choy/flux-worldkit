@@ -231,13 +231,28 @@ export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DE
                 {state.phase === 'setup' ? 'Setup Actors' : 'Combatants'}
               </h2>
               {state.phase === 'setup' && (
-                <button
-                  onClick={actions.startCombat}
-                  className="px-4 py-2 text-sm bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
-                  style={{ fontFamily: 'Zilla Slab' }}
-                >
-                  Start Combat
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      if (confirm('Reset all actor stats and AI settings to defaults?')) {
+                        localStorage.removeItem('combat-sandbox-scenario');
+                        window.location.reload();
+                      }
+                    }}
+                    className="px-3 py-2 text-xs bg-gray-600 text-white rounded hover:bg-gray-700 transition-colors"
+                    style={{ fontFamily: 'Zilla Slab' }}
+                    title="Reset scenario to defaults"
+                  >
+                    Reset
+                  </button>
+                  <button
+                    onClick={actions.startCombat}
+                    className="px-4 py-2 text-sm bg-green-600 text-white rounded hover:bg-green-700 transition-colors"
+                    style={{ fontFamily: 'Zilla Slab' }}
+                  >
+                    Start Combat
+                  </button>
+                </div>
               )}
             </div>
 
@@ -312,6 +327,7 @@ export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DE
                   <p>• POW affects damage and health</p>
                   <p>• FIN affects speed and accuracy</p>
                   <p>• RES affects defense and stamina</p>
+                  <p>• Settings are automatically saved</p>
                   <p>• Click "Start Combat" when ready</p>
                 </div>
               </div>

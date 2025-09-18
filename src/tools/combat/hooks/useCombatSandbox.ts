@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useLocalStorage } from '~/lib/storage';
 import {
   type TransformerContext,
   createActor,
@@ -30,6 +31,21 @@ export type ActorShellStatsInput = {
   per?: number;
   mem?: number;
 };
+
+export type CombatScenarioActorData = {
+  stats: ActorShellStatsInput;
+  aiControlled: boolean;
+  weapon: string; // weapon schema URN
+  skills: {
+    'flux:skill:evasion'?: number;
+    'flux:skill:weapon:martial'?: number;
+  };
+};
+
+export type CombatScenarioData = {
+  actors: Record<ActorURN, CombatScenarioActorData>;
+};
+
 
 export type CombatSandboxState = {
   // Phase management
@@ -130,6 +146,36 @@ export function useCombatSandbox(
   testPlaceId: PlaceURN,
   testWeapon: WeaponSchema
 ): CombatSandboxHook {
+  // Default scenario data
+  const defaultScenarioData: CombatScenarioData = {
+    actors: {
+      [aliceId]: {
+        stats: { pow: 10, fin: 10, res: 10, per: 10 },
+        aiControlled: false,
+        weapon: testWeapon.urn,
+        skills: {
+          'flux:skill:evasion': 0,
+          'flux:skill:weapon:martial': 0
+        }
+      },
+      [bobId]: {
+        stats: { pow: 10, fin: 10, res: 10 },
+        aiControlled: true, // Bob is AI-controlled by default
+        weapon: testWeapon.urn,
+        skills: {
+          'flux:skill:evasion': 0,
+          'flux:skill:weapon:martial': 0
+        }
+      }
+    }
+  };
+
+  // Persistent scenario data
+  const [scenarioData, setScenarioData] = useLocalStorage<CombatScenarioData>(
+    'combat-sandbox-scenario',
+    defaultScenarioData
+  );
+
   // State management
   const [phase, setPhase] = useState<CombatPhase>('setup');
   const [initialContext, setInitialContext] = useState<TransformerContext | null>(null);
@@ -140,10 +186,14 @@ export function useCombatSandbox(
   const [isInitialized, setIsInitialized] = useState(false);
   const [eventCount, setEventCount] = useState(0);
 
-  // AI control state
-  const [aiControlled, setAiControlled] = useState<Record<ActorURN, boolean>>({
-    [aliceId]: false,
-    [bobId]: true, // Bob is AI-controlled by default
+  // AI control state - now derived from persisted scenario data
+  const [aiControlled, setAiControlled] = useState<Record<ActorURN, boolean>>(() => {
+    const aiControlMap: Record<ActorURN, boolean> = {};
+    const actorEntries = Object.entries(scenarioData.actors) as [ActorURN, CombatScenarioActorData][];
+    for (const [actorId, actorData] of actorEntries) {
+      aiControlMap[actorId] = actorData.aiControlled;
+    }
+    return aiControlMap;
   });
   const [aiThinking, setAiThinking] = useState<ActorURN | null>(null);
 
@@ -159,13 +209,25 @@ export function useCombatSandbox(
         throw new Error(`Schema not found for URN: ${urn}`);
       };
 
-      // Create test actors
-      const alice = createActorWithShellStats(aliceId, 'Alice', testWeapon, {
-        pow: 10, fin: 10, res: 10, per: 10
-      }, testPlaceId);
-      const bob = createActorWithShellStats(bobId, 'Bob', testWeapon, {
-        pow: 10, fin: 10, res: 10
-      }, testPlaceId);
+      // Create test actors using persisted stats
+      const alice = createActorWithShellStats(
+        aliceId,
+        'Alice',
+        testWeapon,
+        scenarioData.actors[aliceId]?.stats || { pow: 10, fin: 10, res: 10, per: 10 },
+        testPlaceId
+      );
+      const bob = createActorWithShellStats(
+        bobId,
+        'Bob',
+        testWeapon,
+        scenarioData.actors[bobId]?.stats || { pow: 10, fin: 10, res: 10 },
+        testPlaceId
+      );
+
+      // Ensure actors start with full HP after stat restoration
+      setHealthPercentage(alice, 1.0);
+      setHealthPercentage(bob, 1.0);
 
       // Add actors to context
       context.world.actors[aliceId] = alice;
@@ -290,8 +352,23 @@ export function useCombatSandbox(
         ...prev,
         [actorId]: { ...actor }
       }));
+
+      // Persist the stat change to localStorage
+      setScenarioData((prev: CombatScenarioData) => ({
+        ...prev,
+        actors: {
+          ...prev.actors,
+          [actorId]: {
+            ...prev.actors[actorId],
+            stats: {
+              ...prev.actors[actorId]?.stats,
+              [stat.toLowerCase()]: value
+            }
+          }
+        }
+      }));
     }
-  }, [phase, initialContext]);
+  }, [phase, initialContext, setScenarioData]);
 
   const handleTurnAdvance = useCallback((newActorId: ActorURN) => {
     console.log('🎮 handleTurnAdvance called:', { from: currentActorId, to: newActorId });
@@ -304,7 +381,19 @@ export function useCombatSandbox(
       ...prev,
       [actorId]: enabled
     }));
-  }, []);
+
+    // Persist the AI control change to localStorage
+    setScenarioData((prev: CombatScenarioData) => ({
+      ...prev,
+      actors: {
+        ...prev.actors,
+        [actorId]: {
+          ...prev.actors[actorId],
+          aiControlled: enabled
+        }
+      }
+    }));
+  }, [setScenarioData]);
 
   // Combine state and actions
   const state: CombatSandboxState = useMemo(() => ({
