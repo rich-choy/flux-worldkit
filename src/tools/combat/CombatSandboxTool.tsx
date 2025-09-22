@@ -1,13 +1,13 @@
 import { useEffect, useCallback, useRef } from 'react';
 import {
-  type ActorURN,
-  type PlaceURN,
-  Team,
-  EventType,
-  generateCombatPlan,
-  createCombatantApi,
-  createIntentExecutionApi,
-  createCombatSessionApi,
+    type ActorURN,
+    type PlaceURN,
+    Team,
+    EventType,
+    generateCombatPlan,
+    createCombatantApi,
+    createIntentExecutionApi,
+    createCombatSessionApi,
 } from '@flux';
 
 import { BattlefieldCanvas } from './components/BattlefieldCanvas';
@@ -196,15 +196,15 @@ export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DE
     // For setup phase, organize actors by team
     const getActiveActorsByTeam = () => {
       if (!isInSetupPhase || !state.initialContext) return { alpha: [], bravo: [] };
-      
+
       const activeActors = Object.keys(state.initialContext.world.actors);
-      const alpha = activeActors.filter(actorId => 
+      const alpha = activeActors.filter(actorId =>
         actorId === ALICE_ID || actorId === 'flux:actor:charlie' || actorId === 'flux:actor:eric'
       );
-      const bravo = activeActors.filter(actorId => 
+      const bravo = activeActors.filter(actorId =>
         actorId === BOB_ID || actorId === 'flux:actor:dave' || actorId === 'flux:actor:franz'
       );
-      
+
       return { alpha, bravo };
     };
 
