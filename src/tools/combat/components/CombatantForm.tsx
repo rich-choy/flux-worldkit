@@ -18,6 +18,9 @@ interface CombatantFormProps {
   isAiControlled: boolean;
   onAiToggle: (actorId: ActorURN, enabled: boolean) => void;
   isAiThinking: boolean;
+  // Remove button props
+  showRemoveButton?: boolean;
+  onRemove?: () => void;
 }
 
 export function CombatantForm({
@@ -31,7 +34,9 @@ export function CombatantForm({
   onStatChange,
   isAiControlled,
   onAiToggle,
-  isAiThinking
+  isAiThinking,
+  showRemoveButton = false,
+  onRemove
 }: CombatantFormProps) {
   const teamColor = team === Team.BRAVO ? 'red' : 'blue';
   const teamColorClasses = {
@@ -117,7 +122,7 @@ export function CombatantForm({
             </p>
           </div>
 
-          {/* AI Control Checkbox */}
+          {/* AI Control and Remove Button */}
           <div className="flex items-center space-x-2">
             <label
               className="flex items-center space-x-2 cursor-pointer"
@@ -142,6 +147,16 @@ export function CombatantForm({
                 {isAiThinking ? 'AI Thinking...' : 'AI'}
               </span>
             </label>
+            {showRemoveButton && onRemove && (
+              <button
+                onClick={onRemove}
+                className="ml-2 px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                style={{ fontFamily: 'Zilla Slab' }}
+                title={`Remove ${actorName}`}
+              >
+                ✕
+              </button>
+            )}
           </div>
         </div>
       </div>

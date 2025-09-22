@@ -11,8 +11,6 @@ import {
   createCombatSessionApi,
   ActorStat,
   type SessionURN,
-  type RollResult,
-  SpecialDuration,
   type WeaponSchema,
   type WeaponSchemaURN,
   type SkillURN,
@@ -81,6 +79,12 @@ export type CombatSandboxState = {
 const TEST_WEAPON_ENTITY_URN: ItemURN = 'flux:item:weapon:test';
 const DEFAULT_WEAPON_SCHEMA_URN: WeaponSchemaURN = 'flux:schema:weapon:longsword';
 
+// Additional combatant actor URNs
+const CHARLIE_ID: ActorURN = 'flux:actor:charlie';
+const ERIC_ID: ActorURN = 'flux:actor:eric';
+const DAVE_ID: ActorURN = 'flux:actor:dave';
+const FRANZ_ID: ActorURN = 'flux:actor:franz';
+
 export type CombatSandboxActions = {
   // Phase transitions
   startCombat: () => void;
@@ -89,6 +93,10 @@ export type CombatSandboxActions = {
   updateActorStat: (actorId: ActorURN, stat: ActorStat, value: number) => void;
   updateActorWeapon: (actorId: ActorURN, weaponUrn: WeaponSchemaURN) => void;
   updateActorSkill: (actorId: ActorURN, skillUrn: SkillURN, rank: number) => void;
+
+  // Optional combatant management
+  addCombatant: (name: 'charlie' | 'eric' | 'dave' | 'franz') => void;
+  removeCombatant: (name: 'charlie' | 'eric' | 'dave' | 'franz') => void;
 
   // AI control
   handleAiToggle: (actorId: ActorURN, enabled: boolean) => void;
@@ -271,48 +279,13 @@ export function useCombatSandbox(
     if (!initialContext || !isInSetupPhase) return;
 
     try {
-      // Create deterministic initiative to ensure Alice always goes first
-      const aliceInitiative: RollResult = {
-        dice: '1d20' as const,
-        values: [20],
-        mods: {
-          perception: {
-            type: 'flux:modifier:initiative:per',
-            origin: { type: 'flux:stat:per', actor: 'self' },
-            value: 0,
-            duration: SpecialDuration.PERMANENT
-          }
-        },
-        natural: 20,
-        result: 20
-      };
-      const bobInitiative: RollResult = {
-        dice: '1d20' as const,
-        values: [1],
-        mods: {
-          perception: {
-            type: 'flux:modifier:initiative:per',
-            origin: { type: 'flux:stat:per', actor: 'self' },
-            value: 0,
-            duration: SpecialDuration.PERMANENT
-          }
-        },
-        natural: 1,
-        result: 1
-      };
-
-      const deterministicInitiative = new Map<ActorURN, RollResult>([
-        [aliceId, aliceInitiative],
-        [bobId, bobInitiative]
-      ]);
-
-      // Create session with deterministic initiative
+      // Create session without predetermined initiative - let the session layer compute it dynamically
       const combatSessionApi = createCombatSessionApi(
         initialContext,
         testPlaceId,
         undefined, // sessionId
         undefined, // battlefield
-        deterministicInitiative,
+        undefined, // initiative - let it be computed automatically
       );
 
       const { session: combatSession, addCombatant, startCombat: startCombatSession } = combatSessionApi;
@@ -325,28 +298,66 @@ export function useCombatSandbox(
         return;
       }
 
-      addCombatant(aliceId, Team.ALPHA);
-      addCombatant(bobId, Team.BRAVO);
+      // Add all active actors to the combat session
+      const activeActorIds = Object.keys(initialContext.world.actors) as ActorURN[];
+      console.log('🎯 Adding combatants to session:', activeActorIds);
 
-      // Set up targeting
-      combatSession.data.combatants.get(aliceId)!.target = bobId;
-      combatSession.data.combatants.get(bobId)!.target = aliceId;
+      for (const actorId of activeActorIds) {
+        const team = getTeamFromActorId(actorId);
+        addCombatant(actorId, team);
+        console.log(`  ✅ Added ${getNameFromActorId(actorId)} to Team ${team}`);
+      }
 
-      // Start combat - this will generate WorldEvents
+      // Set up targeting - each combatant targets a random enemy from the opposing team
+      const alphaCombatants: ActorURN[] = [];
+      const bravoCombatants: ActorURN[] = [];
+
+      for (const [actorId, combatant] of combatSession.data.combatants) {
+        if (combatant.team === Team.ALPHA) {
+          alphaCombatants.push(actorId);
+        } else {
+          bravoCombatants.push(actorId);
+        }
+      }
+
+      // Set up targeting: each combatant targets a random enemy
+      for (const [, combatant] of combatSession.data.combatants) {
+        const enemies = combatant.team === Team.ALPHA ? bravoCombatants : alphaCombatants;
+        if (enemies.length > 0) {
+          const randomEnemy = enemies[Math.floor(Math.random() * enemies.length)];
+          combatant.target = randomEnemy;
+        }
+      }
+
+      // Start combat - this will generate WorldEvents and compute initiative
       startCombatSession();
+
+      // Get the first actor from the computed initiative order
+      const firstActorId = combatSession.data.initiative.keys().next().value as ActorURN;
 
       // Track events after combat start for re-render triggering
       const eventsAfter = initialContext.getDeclaredEvents().length;
 
       // Update state - session object is mutated, not replaced
       setInitialSession(combatSession);
-      setCurrentActorId(aliceId); // Alice always goes first
+      setCurrentActorId(firstActorId); // Use computed initiative order
       setEventCount(eventsAfter);
+
+      console.log('🚀 Combat started with initiative order:', Array.from(combatSession.data.initiative.keys()));
 
     } catch (error) {
       console.error('❌ Combat start failed:', error);
     }
-  }, [initialContext, isInSetupPhase, aliceId, bobId, testPlaceId]);
+  }, [initialContext, isInSetupPhase, testPlaceId]);
+
+  // Helper to get team from actor ID
+  const getTeamFromActorId = (actorId: ActorURN): Team => {
+    if (actorId === aliceId || actorId === CHARLIE_ID || actorId === ERIC_ID) {
+      return Team.ALPHA;
+    } else {
+      return Team.BRAVO;
+    }
+  };
 
   // Function to update actor stats during setup phase
   const updateActorStat = useCallback((actorId: ActorURN, stat: ActorStat, value: number) => {
@@ -464,6 +475,141 @@ export function useCombatSandbox(
     }));
   }, [isInSetupPhase, setScenarioData]);
 
+  // Helper functions for optional combatants
+  const getActorIdFromName = (name: 'charlie' | 'eric' | 'dave' | 'franz'): ActorURN => {
+    switch (name) {
+      case 'charlie': return CHARLIE_ID;
+      case 'eric': return ERIC_ID;
+      case 'dave': return DAVE_ID;
+      case 'franz': return FRANZ_ID;
+    }
+  };
+
+  const getTeamFromName = (name: 'charlie' | 'eric' | 'dave' | 'franz'): Team => {
+    return (name === 'charlie' || name === 'eric') ? Team.ALPHA : Team.BRAVO;
+  };
+
+  const getNameFromActorId = (actorId: ActorURN): string => {
+    switch (actorId) {
+      case CHARLIE_ID: return 'Charlie';
+      case ERIC_ID: return 'Eric';
+      case DAVE_ID: return 'Dave';
+      case FRANZ_ID: return 'Franz';
+      case aliceId: return 'Alice';
+      case bobId: return 'Bob';
+      default: return actorId.split(':').pop() || 'Unknown';
+    }
+  };
+
+  // Function to add optional combatants during setup phase
+  const addCombatant = useCallback((name: 'charlie' | 'eric' | 'dave' | 'franz') => {
+    if (!isInSetupPhase || !initialContext) return;
+
+    const actorId = getActorIdFromName(name);
+    const team = getTeamFromName(name);
+    const actorName = getNameFromActorId(actorId);
+
+    // Check if actor already exists
+    if (initialContext.world.actors[actorId]) {
+      console.warn(`Actor ${actorName} already exists`);
+      return;
+    }
+
+    // Get default weapon schema
+    const weaponSchema = availableWeapons.get(DEFAULT_WEAPON_SCHEMA_URN);
+    if (!weaponSchema) {
+      console.error(`Default weapon schema not found: ${DEFAULT_WEAPON_SCHEMA_URN}`);
+      return;
+    }
+
+    // Create the actor with default stats
+    const defaultStats = { pow: 10, fin: 10, res: 10, per: 10 };
+    const actor = createActorWithShellStats(
+      actorId,
+      actorName,
+      weaponSchema,
+      defaultStats,
+      testPlaceId
+    );
+
+    // Add actor to world context
+    initialContext.world.actors[actorId] = actor;
+
+    // Add to local actors state for UI updates
+    setActors(prev => ({
+      ...prev,
+      [actorId]: actor
+    }));
+
+    // Persist actor data to localStorage
+    setScenarioData((prev: CombatScenarioData) => ({
+      ...prev,
+      actors: {
+        ...prev.actors,
+        [actorId]: {
+          stats: defaultStats,
+          aiControlled: true, // Optional combatants are AI-controlled by default
+          weapon: DEFAULT_WEAPON_SCHEMA_URN,
+          skills: {
+            'flux:skill:evasion': 0,
+            'flux:skill:weapon:martial': 0
+          }
+        }
+      }
+    }));
+
+    // Set AI control state
+    setAiControlled(prev => ({
+      ...prev,
+      [actorId]: true
+    }));
+
+    console.log(`✅ Added ${actorName} to Team ${team}`);
+  }, [isInSetupPhase, initialContext, availableWeapons, testPlaceId, setActors, setScenarioData, setAiControlled]);
+
+  // Function to remove optional combatants during setup phase
+  const removeCombatant = useCallback((name: 'charlie' | 'eric' | 'dave' | 'franz') => {
+    if (!isInSetupPhase || !initialContext) return;
+
+    const actorId = getActorIdFromName(name);
+    const actorName = getNameFromActorId(actorId);
+
+    // Check if actor exists
+    if (!initialContext.world.actors[actorId]) {
+      console.warn(`Actor ${actorName} does not exist`);
+      return;
+    }
+
+    // Remove from world context
+    delete initialContext.world.actors[actorId];
+
+    // Remove from local actors state
+    setActors(prev => {
+      const newActors = { ...prev };
+      delete newActors[actorId];
+      return newActors;
+    });
+
+    // Remove from localStorage (optional - could keep for future re-adding)
+    setScenarioData((prev: CombatScenarioData) => {
+      const newActors = { ...prev.actors };
+      delete newActors[actorId];
+      return {
+        ...prev,
+        actors: newActors
+      };
+    });
+
+    // Remove AI control state
+    setAiControlled(prev => {
+      const newAiControlled = { ...prev };
+      delete newAiControlled[actorId];
+      return newAiControlled;
+    });
+
+    console.log(`❌ Removed ${actorName}`);
+  }, [isInSetupPhase, initialContext, setActors, setScenarioData, setAiControlled]);
+
   // Helper functions to get current actor data
   const getActorWeapon = useCallback((actorId: ActorURN): WeaponSchemaURN => {
     const actorData = scenarioData.actors[actorId];
@@ -503,10 +649,12 @@ export function useCombatSandbox(
     updateActorStat,
     updateActorWeapon,
     updateActorSkill,
+    addCombatant,
+    removeCombatant,
     handleAiToggle,
     setAiThinking,
     handleTurnAdvance,
-  }), [startCombat, updateActorStat, updateActorWeapon, updateActorSkill, handleAiToggle, handleTurnAdvance]);
+  }), [startCombat, updateActorStat, updateActorWeapon, updateActorSkill, addCombatant, removeCombatant, handleAiToggle, handleTurnAdvance]);
 
   return { state, actions };
 }

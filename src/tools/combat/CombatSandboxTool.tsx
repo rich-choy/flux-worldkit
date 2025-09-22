@@ -193,13 +193,22 @@ export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DE
       : [];
     const currentCombatant = getCurrentCombatant();
 
-    // For setup phase, create mock combatants from actors
-    const setupActors = isInSetupPhase
-      ? [
-          { actorId: ALICE_ID, team: Team.ALPHA },
-          { actorId: BOB_ID, team: Team.BRAVO }
-        ]
-      : [];
+    // For setup phase, organize actors by team
+    const getActiveActorsByTeam = () => {
+      if (!isInSetupPhase || !state.initialContext) return { alpha: [], bravo: [] };
+      
+      const activeActors = Object.keys(state.initialContext.world.actors);
+      const alpha = activeActors.filter(actorId => 
+        actorId === ALICE_ID || actorId === 'flux:actor:charlie' || actorId === 'flux:actor:eric'
+      );
+      const bravo = activeActors.filter(actorId => 
+        actorId === BOB_ID || actorId === 'flux:actor:dave' || actorId === 'flux:actor:franz'
+      );
+      
+      return { alpha, bravo };
+    };
+
+    const { alpha: alphaActors, bravo: bravoActors } = getActiveActorsByTeam();
 
     return (
       <div className="combat-sandbox-tool h-full flex flex-col" style={{ backgroundColor: '#1d2021' }}>
@@ -253,22 +262,115 @@ export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DE
             </div>
 
             {isInSetupPhase ? (
-              setupActors.map(setupActor => (
-                <CombatantForm
-                  key={setupActor.actorId}
-                  actor={state.actors[setupActor.actorId]}
-                  team={setupActor.team}
-                  availableWeapons={state.availableWeapons}
-                  currentWeaponUrn={state.getActorWeapon(setupActor.actorId)}
-                  onWeaponChange={actions.updateActorWeapon}
-                  skillValues={state.getActorSkills(setupActor.actorId)}
-                  onSkillChange={actions.updateActorSkill}
-                  onStatChange={actions.updateActorStat}
-                  isAiControlled={state.aiControlled[setupActor.actorId] || false}
-                  onAiToggle={actions.handleAiToggle}
-                  isAiThinking={state.aiThinking === setupActor.actorId}
-                />
-              ))
+              <div className="space-y-6">
+                {/* Team ALPHA Section */}
+                <div>
+                  <div className="flex justify-between items-center mb-3">
+                    <h3 className="text-md font-medium" style={{ color: '#83a598', fontFamily: 'Zilla Slab' }}>
+                      Team ALPHA
+                    </h3>
+                    <div className="flex gap-1">
+                      {!alphaActors.includes('flux:actor:charlie') && (
+                        <button
+                          onClick={() => actions.addCombatant('charlie')}
+                          className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                          style={{ fontFamily: 'Zilla Slab' }}
+                          title="Add Charlie to Team ALPHA"
+                        >
+                          + Charlie
+                        </button>
+                      )}
+                      {!alphaActors.includes('flux:actor:eric') && (
+                        <button
+                          onClick={() => actions.addCombatant('eric')}
+                          className="px-2 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
+                          style={{ fontFamily: 'Zilla Slab' }}
+                          title="Add Eric to Team ALPHA"
+                        >
+                          + Eric
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    {alphaActors.map(actorId => (
+                      <CombatantForm
+                        key={actorId}
+                        actor={state.actors[actorId]}
+                        team={Team.ALPHA}
+                        availableWeapons={state.availableWeapons}
+                        currentWeaponUrn={state.getActorWeapon(actorId)}
+                        onWeaponChange={actions.updateActorWeapon}
+                        skillValues={state.getActorSkills(actorId)}
+                        onSkillChange={actions.updateActorSkill}
+                        onStatChange={actions.updateActorStat}
+                        isAiControlled={state.aiControlled[actorId] || false}
+                        onAiToggle={actions.handleAiToggle}
+                        isAiThinking={state.aiThinking === actorId}
+                        showRemoveButton={actorId !== ALICE_ID}
+                        onRemove={actorId !== ALICE_ID ? () => {
+                          const name = actorId === 'flux:actor:charlie' ? 'charlie' : 'eric';
+                          actions.removeCombatant(name);
+                        } : undefined}
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                {/* Team BRAVO Section */}
+                <div>
+                  <div className="flex justify-between items-center mb-3">
+                    <h3 className="text-md font-medium" style={{ color: '#fb4934', fontFamily: 'Zilla Slab' }}>
+                      Team BRAVO
+                    </h3>
+                    <div className="flex gap-1">
+                      {!bravoActors.includes('flux:actor:dave') && (
+                        <button
+                          onClick={() => actions.addCombatant('dave')}
+                          className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                          style={{ fontFamily: 'Zilla Slab' }}
+                          title="Add Dave to Team BRAVO"
+                        >
+                          + Dave
+                        </button>
+                      )}
+                      {!bravoActors.includes('flux:actor:franz') && (
+                        <button
+                          onClick={() => actions.addCombatant('franz')}
+                          className="px-2 py-1 text-xs bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+                          style={{ fontFamily: 'Zilla Slab' }}
+                          title="Add Franz to Team BRAVO"
+                        >
+                          + Franz
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <div className="space-y-3">
+                    {bravoActors.map(actorId => (
+                      <CombatantForm
+                        key={actorId}
+                        actor={state.actors[actorId]}
+                        team={Team.BRAVO}
+                        availableWeapons={state.availableWeapons}
+                        currentWeaponUrn={state.getActorWeapon(actorId)}
+                        onWeaponChange={actions.updateActorWeapon}
+                        skillValues={state.getActorSkills(actorId)}
+                        onSkillChange={actions.updateActorSkill}
+                        onStatChange={actions.updateActorStat}
+                        isAiControlled={state.aiControlled[actorId] || false}
+                        onAiToggle={actions.handleAiToggle}
+                        isAiThinking={state.aiThinking === actorId}
+                        showRemoveButton={actorId !== BOB_ID}
+                        onRemove={actorId !== BOB_ID ? () => {
+                          const name = actorId === 'flux:actor:dave' ? 'dave' : 'franz';
+                          actions.removeCombatant(name);
+                        } : undefined}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
             ) : (
               combatants.map(combatant => (
                 <CombatantCard
