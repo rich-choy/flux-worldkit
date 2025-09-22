@@ -1,13 +1,14 @@
 import { useEffect, useCallback, useRef } from 'react';
 import {
-    type ActorURN,
-    type PlaceURN,
-    Team,
-    EventType,
-    generateCombatPlan,
-    createCombatantApi,
-    createIntentExecutionApi,
-    createCombatSessionApi,
+  type ActorURN,
+  type PlaceURN,
+  Team,
+  EventType,
+  SessionStatus,
+  generateCombatPlan,
+  createCombatantApi,
+  createIntentExecutionApi,
+  createCombatSessionApi,
 } from '@flux';
 
 import { BattlefieldCanvas } from './components/BattlefieldCanvas';
@@ -56,9 +57,31 @@ export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DE
     const { combatLog, addEvents: handleLogEvents } = useCombatLog();
 
     const aiExecutingRef = useRef<ActorURN | null>(null);
+    const aiTimerRef = useRef<NodeJS.Timeout | null>(null);
+    const sessionApiRef = useRef<any>(null);
 
     // Helper to determine if we're in setup phase
     const isInSetupPhase = !state.initialSession || state.initialSession.status === 'pending';
+    const isPaused = state.initialSession?.status === SessionStatus.PAUSED;
+    const isRunning = state.initialSession?.status === SessionStatus.RUNNING;
+
+    // Get session API when session is available
+    useEffect(() => {
+      if (state.initialContext && state.sessionId && !isInSetupPhase) {
+        try {
+          const sessionApi = createCombatSessionApi(
+            state.initialContext,
+            TEST_PLACE_ID,
+            state.sessionId
+          );
+          sessionApiRef.current = sessionApi;
+        } catch (error) {
+          console.warn('Failed to get session API:', error);
+        }
+      } else {
+        sessionApiRef.current = null;
+      }
+    }, [state.initialContext, state.sessionId, isInSetupPhase]);
 
     const handleCommand = useCallback((command: string) => {
       try {
@@ -76,9 +99,55 @@ export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DE
       }
     }, [executeCommand, handleLogEvents, state.currentActorId, actions]);
 
+    // Pause/Resume handlers
+    const handlePause = useCallback(() => {
+      if (!sessionApiRef.current || !isRunning) return;
+
+      try {
+        // Cancel any pending AI timer
+        if (aiTimerRef.current) {
+          clearTimeout(aiTimerRef.current);
+          aiTimerRef.current = null;
+        }
+
+        // Pause combat and handle events
+        const events = sessionApiRef.current.pauseCombat();
+        handleLogEvents(events);
+
+        // Clear AI thinking state
+        actions.setAiThinking(null);
+        aiExecutingRef.current = null;
+
+        console.log('⏸️ Combat paused');
+      } catch (error) {
+        console.error('Failed to pause combat:', error);
+      }
+    }, [isRunning, handleLogEvents, actions]);
+
+    const handleResume = useCallback(() => {
+      if (!sessionApiRef.current || !isPaused) return;
+
+      try {
+        // Resume combat and handle events
+        const events = sessionApiRef.current.resumeCombat();
+        handleLogEvents(events);
+
+        console.log('▶️ Combat resumed');
+        // AI execution will restart automatically via useEffect
+      } catch (error) {
+        console.error('Failed to resume combat:', error);
+      }
+    }, [isPaused, handleLogEvents]);
+
     useEffect(() => {
       // Only execute AI actions during active combat
       if (isInSetupPhase || !state.currentActorId) {
+        aiExecutingRef.current = null;
+        return;
+      }
+
+      // Don't execute AI actions when combat is paused
+      if (isPaused) {
         aiExecutingRef.current = null;
         return;
       }
@@ -158,15 +227,22 @@ export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DE
         // Clear AI thinking state and execution tracking after execution
         actions.setAiThinking(null);
         aiExecutingRef.current = null;
+        aiTimerRef.current = null;
       }, 1000); // 1 second delay for better UX
+
+      // Store timer reference for potential cancellation
+      aiTimerRef.current = aiExecutionTimer;
 
       // Cleanup timer on unmount or dependency change
       return () => {
-        clearTimeout(aiExecutionTimer);
+        if (aiTimerRef.current) {
+          clearTimeout(aiTimerRef.current);
+          aiTimerRef.current = null;
+        }
         actions.setAiThinking(null);
         aiExecutingRef.current = null;
       };
-    }, [state.currentActorId, state.aiControlled, isInSetupPhase, actions, handleCommand, combatState.session, state.initialContext]);
+    }, [state.currentActorId, state.aiControlled, isInSetupPhase, isPaused, actions, handleCommand, combatState.session, state.initialContext]);
 
     // Get current combatant from immutable state
     const getCurrentCombatant = () => {
@@ -216,12 +292,42 @@ export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DE
         <div className="px-6 py-4" style={{ backgroundColor: '#32302f', borderBottom: '1px solid #504945' }}>
           <div className="flex justify-between items-center">
             <h1 className="text-xl font-semibold" style={{ color: '#ebdbb2', fontFamily: 'Zilla Slab' }}>Combat Sandbox</h1>
-            <div className="text-sm" style={{ color: '#a89984', fontFamily: 'Zilla Slab' }}>
-              {isInSetupPhase ? (
-                'Setup Phase - Customize actors before combat'
-              ) : (
-                `Turn ${combatState.session?.data.rounds.current.number} - ${state.actors[state.currentActorId!]?.name || 'Unknown'} (${currentCombatant?.ap.eff.cur.toFixed(1) || 0} AP remaining)`
+            <div className="flex items-center gap-4">
+              {/* Pause/Resume Controls */}
+              {!isInSetupPhase && (
+                <div className="flex gap-2">
+                  {isRunning && (
+                    <button
+                      onClick={handlePause}
+                      className="px-3 py-2 text-sm bg-yellow-600 text-white rounded hover:bg-yellow-700 transition-colors flex items-center gap-1"
+                      style={{ fontFamily: 'Zilla Slab' }}
+                      title="Pause combat"
+                    >
+                      ⏸️ Pause
+                    </button>
+                  )}
+                  {isPaused && (
+                    <button
+                      onClick={handleResume}
+                      className="px-3 py-2 text-sm bg-green-600 text-white rounded hover:bg-green-700 transition-colors flex items-center gap-1"
+                      style={{ fontFamily: 'Zilla Slab' }}
+                      title="Resume combat"
+                    >
+                      ▶️ Resume
+                    </button>
+                  )}
+                </div>
               )}
+              {/* Status Text */}
+              <div className="text-sm" style={{ color: '#a89984', fontFamily: 'Zilla Slab' }}>
+                {isInSetupPhase ? (
+                  'Setup Phase - Customize actors before combat'
+                ) : isPaused ? (
+                  <span className="text-yellow-400 font-medium">⏸️ PAUSED</span>
+                ) : (
+                  `Turn ${combatState.session?.data.rounds.current.number} - ${state.actors[state.currentActorId!]?.name || 'Unknown'} (${currentCombatant?.ap.eff.cur.toFixed(1) || 0} AP remaining)`
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -299,12 +405,12 @@ export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DE
                         actor={state.actors[actorId]}
                         team={Team.ALPHA}
                         availableWeapons={state.availableWeapons}
-                        currentWeaponUrn={state.getActorWeapon(actorId)}
+                        currentWeaponUrn={state.getActorWeapon(actorId as ActorURN)}
                         onWeaponChange={actions.updateActorWeapon}
-                        skillValues={state.getActorSkills(actorId)}
+                        skillValues={state.getActorSkills(actorId as ActorURN)}
                         onSkillChange={actions.updateActorSkill}
                         onStatChange={actions.updateActorStat}
-                        isAiControlled={state.aiControlled[actorId] || false}
+                        isAiControlled={state.aiControlled[actorId as ActorURN] || false}
                         onAiToggle={actions.handleAiToggle}
                         isAiThinking={state.aiThinking === actorId}
                         showRemoveButton={actorId !== ALICE_ID}
@@ -353,12 +459,12 @@ export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DE
                         actor={state.actors[actorId]}
                         team={Team.BRAVO}
                         availableWeapons={state.availableWeapons}
-                        currentWeaponUrn={state.getActorWeapon(actorId)}
+                        currentWeaponUrn={state.getActorWeapon(actorId as ActorURN)}
                         onWeaponChange={actions.updateActorWeapon}
-                        skillValues={state.getActorSkills(actorId)}
+                        skillValues={state.getActorSkills(actorId as ActorURN)}
                         onSkillChange={actions.updateActorSkill}
                         onStatChange={actions.updateActorStat}
-                        isAiControlled={state.aiControlled[actorId] || false}
+                        isAiControlled={state.aiControlled[actorId as ActorURN] || false}
                         onAiToggle={actions.handleAiToggle}
                         isAiThinking={state.aiThinking === actorId}
                         showRemoveButton={actorId !== BOB_ID}
