@@ -4,7 +4,6 @@ import {
   type PlaceURN,
   Team,
   EventType,
-  createWeaponSchema,
   generateCombatPlan,
   createCombatantApi,
   createIntentExecutionApi,
@@ -25,13 +24,6 @@ const ALICE_ID: ActorURN = 'flux:actor:alice';
 const BOB_ID: ActorURN = 'flux:actor:bob';
 const TEST_PLACE_ID: PlaceURN = 'flux:place:test-battlefield';
 
-// Set up weapon schema for combat
-const TEST_WEAPON = createWeaponSchema({
-  name: 'Test Weapon',
-  urn: 'flux:schema:weapon:test',
-  range: { optimal: 1, max: 1 } // True 1m range melee weapon
-});
-
 export type CombatSandboxToolDependencies = {
   setTimeout: (callback: () => void, delay: number) => NodeJS.Timeout;
   generateCombatPlan: typeof generateCombatPlan;
@@ -51,7 +43,7 @@ export const DEFAULT_COMBAT_SANDBOX_TOOL_DEPS: CombatSandboxToolDependencies = {
 export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DEFAULT_COMBAT_SANDBOX_TOOL_DEPS) {
 
   return function CombatSandboxTool() {
-    const { state, actions } = useCombatSandbox(ALICE_ID, BOB_ID, TEST_PLACE_ID, TEST_WEAPON);
+    const { state, actions } = useCombatSandbox(ALICE_ID, BOB_ID, TEST_PLACE_ID);
 
     const { state: combatState, executeCommand } = useCombatState(
       state.initialContext,

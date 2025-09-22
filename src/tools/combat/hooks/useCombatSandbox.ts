@@ -24,7 +24,7 @@ import {
   MIN_SKILL_RANK,
   MAX_SKILL_RANK,
   SessionStatus,
-  createSwordSchema,
+  type ItemURN,
 } from '@flux';
 import type { WeaponMap } from '../types';
 
@@ -78,7 +78,8 @@ export type CombatSandboxState = {
   getActorSkills: (actorId: ActorURN) => Record<SkillURN, number>;
 };
 
-const TEST_WEAPON_ENTITY_URN = 'flux:item:weapon:test';
+const TEST_WEAPON_ENTITY_URN: ItemURN = 'flux:item:weapon:test';
+const DEFAULT_WEAPON_SCHEMA_URN: WeaponSchemaURN = 'flux:schema:weapon:longsword';
 
 export type CombatSandboxActions = {
   // Phase transitions
@@ -148,8 +149,6 @@ export type CombatSandboxHook = {
   actions: CombatSandboxActions;
 };
 
-const DEFAULT_TEST_WEAPON = createSwordSchema({ urn: 'flux:schema:weapon:test', name: 'Test Weapon' });
-
 /**
  * Creates a combat sandbox scenario management API
  * Note: Despite the "use" prefix, this is actually a React hook that manages
@@ -159,7 +158,7 @@ export function useCombatSandbox(
   aliceId: ActorURN,
   bobId: ActorURN,
   testPlaceId: PlaceURN = 'flux:place:test-battlefield',
-  defaultWeapon: WeaponSchema = DEFAULT_TEST_WEAPON,
+  defaultWeapon: WeaponSchemaURN= DEFAULT_WEAPON_SCHEMA_URN,
 ): CombatSandboxHook {
   // Default scenario data
   const defaultScenarioData: CombatScenarioData = {
@@ -167,7 +166,7 @@ export function useCombatSandbox(
       [aliceId]: {
         stats: { pow: 10, fin: 10, res: 10, per: 10 },
         aiControlled: false,
-        weapon: defaultWeapon.urn as WeaponSchemaURN,
+        weapon: defaultWeapon,
         skills: {
           'flux:skill:evasion': 0,
           'flux:skill:weapon:martial': 0
@@ -176,7 +175,7 @@ export function useCombatSandbox(
       [bobId]: {
         stats: { pow: 10, fin: 10, res: 10 },
         aiControlled: true, // Bob is AI-controlled by default
-        weapon: defaultWeapon.urn as WeaponSchemaURN,
+        weapon: defaultWeapon,
         skills: {
           'flux:skill:evasion': 0,
           'flux:skill:weapon:martial': 0
@@ -221,24 +220,14 @@ export function useCombatSandbox(
   useEffect(() => {
     try {
       const context = createTransformerContext();
-
-
       const weaponMap = context.schemaManager.getSchemasOfType<WeaponSchemaURN, WeaponSchema>('weapon');
+      console.log('🔍 Available weapons:', [...weaponMap.values()]);
       // Set up available weapons - for now just the test weapon, but this will expand
       setAvailableWeapons(weaponMap);
 
-      // @ts-expect-error - Mock schema manager for testing
-      context.schemaManager.getSchema = (urn: string) => {
-        const weapon = weaponMap.get(urn as WeaponSchemaURN);
-        if (weapon) {
-          return weapon;
-        }
-        throw new Error(`Schema not found for URN: ${urn}`);
-      };
-
       // Create test actors using persisted stats and weapons
-      const aliceWeaponUrn = scenarioData.actors[aliceId]?.weapon || (defaultWeapon.urn as WeaponSchemaURN);
-      const bobWeaponUrn = scenarioData.actors[bobId]?.weapon || (defaultWeapon.urn as WeaponSchemaURN);
+      const aliceWeaponUrn = scenarioData.actors[aliceId]?.weapon || defaultWeapon;
+      const bobWeaponUrn = scenarioData.actors[bobId]?.weapon || defaultWeapon;
 
       const aliceWeapon = weaponMap.get(aliceWeaponUrn);
       const bobWeapon = weaponMap.get(bobWeaponUrn);
