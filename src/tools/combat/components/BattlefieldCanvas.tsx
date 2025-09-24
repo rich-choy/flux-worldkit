@@ -13,14 +13,6 @@ export function BattlefieldCanvas({ session, width = 560, height = 200 }: Battle
   useEffect(() => {
     if (!canvasRef.current || !session) return;
 
-    // Debug logging to see if effect is running and what data we have
-    console.log('🎨 BattlefieldCanvas re-rendering, session ID:', session.id);
-    if (session.data?.combatants) {
-      for (const [actorId, combatant] of session.data.combatants) {
-        console.log(`  ${actorId}: position ${combatant.position.coordinate}m`);
-      }
-    }
-
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;

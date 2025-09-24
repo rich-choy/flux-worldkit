@@ -6,7 +6,7 @@ interface CombatLogProps {
   maxEntries?: number;
 }
 
-export function CombatLog({ entries, maxEntries = 100 }: CombatLogProps) {
+export function CombatLog({ entries, maxEntries = 10_000 }: CombatLogProps) {
   const logRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll to bottom when new entries are added
@@ -26,14 +26,6 @@ export function CombatLog({ entries, maxEntries = 100 }: CombatLogProps) {
 
   // Limit entries to prevent memory issues
   const displayEntries = entries.slice(-maxEntries);
-
-  // Debug: Check for duplicate IDs
-  const ids = displayEntries.map(e => e.id);
-  const duplicateIds = ids.filter((id, index) => ids.indexOf(id) !== index);
-  if (duplicateIds.length > 0) {
-    console.warn('🚨 CombatLog: Found duplicate IDs in displayEntries:', duplicateIds);
-    console.warn('🚨 All IDs:', ids);
-  }
 
   return (
     <div className="combat-log border border-gray-200 rounded-lg">

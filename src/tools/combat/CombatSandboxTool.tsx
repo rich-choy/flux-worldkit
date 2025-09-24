@@ -27,6 +27,7 @@ const TEST_PLACE_ID: PlaceURN = 'flux:place:test-battlefield';
 
 export type CombatSandboxToolDependencies = {
   setTimeout: (callback: () => void, delay: number) => NodeJS.Timeout;
+  clearTimeout: (timeout: NodeJS.Timeout) => void;
   generateCombatPlan: typeof generateCombatPlan;
   createCombatantApi: typeof createCombatantApi;
   createIntentExecutionApi: typeof createIntentExecutionApi;
@@ -35,6 +36,7 @@ export type CombatSandboxToolDependencies = {
 
 export const DEFAULT_COMBAT_SANDBOX_TOOL_DEPS: CombatSandboxToolDependencies = {
   setTimeout: (callback: () => void, delay: number) => setTimeout(callback, delay),
+  clearTimeout: (timeout: NodeJS.Timeout) => clearTimeout(timeout),
   generateCombatPlan,
   createCombatantApi,
   createIntentExecutionApi,
@@ -68,34 +70,28 @@ export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DE
     // Get session API when session is available
     useEffect(() => {
       if (state.initialContext && state.sessionId && !isInSetupPhase) {
-        try {
-          const sessionApi = createCombatSessionApi(
-            state.initialContext,
-            TEST_PLACE_ID,
-            state.sessionId
-          );
-          sessionApiRef.current = sessionApi;
-        } catch (error) {
-          console.warn('Failed to get session API:', error);
-        }
+        sessionApiRef.current = createCombatSessionApi(
+          state.initialContext,
+          TEST_PLACE_ID,
+          state.sessionId
+        );
       } else {
         sessionApiRef.current = null;
       }
     }, [state.initialContext, state.sessionId, isInSetupPhase]);
 
     const handleCommand = useCallback((command: string) => {
-      try {
-        const events = executeCommand(command);
-        handleLogEvents(events);
+      const events = executeCommand(command);
+      handleLogEvents(events);
 
-        // Check for turn advancement in the events
-        const turnStartEvent = events.find(event => event.type === EventType.COMBAT_TURN_DID_START);
+      // CRITICAL: Synchronize React UI state with authoritative combat state
+      actions.syncActorsFromContext();
 
-        if (turnStartEvent && turnStartEvent.actor !== state.currentActorId) {
-          actions.handleTurnAdvance(turnStartEvent.actor!);
-        }
-      } catch (error) {
-        throw error;
+      // Check for turn advancement in the events
+      const turnStartEvent = events.find(event => event.type === EventType.COMBAT_TURN_DID_START);
+
+      if (turnStartEvent && turnStartEvent.actor !== state.currentActorId) {
+        actions.handleTurnAdvance(turnStartEvent.actor!);
       }
     }, [executeCommand, handleLogEvents, state.currentActorId, actions]);
 
@@ -103,40 +99,30 @@ export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DE
     const handlePause = useCallback(() => {
       if (!sessionApiRef.current || !isRunning) return;
 
-      try {
-        // Cancel any pending AI timer
-        if (aiTimerRef.current) {
-          clearTimeout(aiTimerRef.current);
-          aiTimerRef.current = null;
-        }
-
-        // Pause combat and handle events
-        const events = sessionApiRef.current.pauseCombat();
-        handleLogEvents(events);
-
-        // Clear AI thinking state
-        actions.setAiThinking(null);
-        aiExecutingRef.current = null;
-
-        console.log('⏸️ Combat paused');
-      } catch (error) {
-        console.error('Failed to pause combat:', error);
+      // Cancel any pending AI timer
+      if (aiTimerRef.current) {
+        deps.clearTimeout(aiTimerRef.current);
+        aiTimerRef.current = null;
       }
+
+      // Pause combat and handle events
+      const events = sessionApiRef.current.pauseCombat();
+      handleLogEvents(events);
+
+      // Clear AI thinking state
+      actions.setAiThinking(null);
+      aiExecutingRef.current = null;
+
     }, [isRunning, handleLogEvents, actions]);
 
     const handleResume = useCallback(() => {
       if (!sessionApiRef.current || !isPaused) return;
 
-      try {
-        // Resume combat and handle events
-        const events = sessionApiRef.current.resumeCombat();
-        handleLogEvents(events);
+      // Resume combat and handle events
+      const events = sessionApiRef.current.resumeCombat();
+      handleLogEvents(events);
 
-        console.log('▶️ Combat resumed');
-        // AI execution will restart automatically via useEffect
-      } catch (error) {
-        console.error('Failed to resume combat:', error);
-      }
+      // AI execution will restart automatically via useEffect
     }, [isPaused, handleLogEvents]);
 
     useEffect(() => {
@@ -159,6 +145,13 @@ export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DE
         return;
       }
 
+      // Check if current actor is dead - skip AI execution for dead actors
+      const currentActor = state.actors[state.currentActorId];
+      if (currentActor && currentActor.hp.eff.cur <= 0) {
+        aiExecutingRef.current = null;
+        return;
+      }
+
       // Prevent multiple executions for the same turn using ref
       if (aiExecutingRef.current === state.currentActorId) {
         return;
@@ -173,6 +166,13 @@ export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DE
           return;
         }
 
+        // Double-check that the current actor is still alive before executing AI
+        const currentActor = state.initialContext.world.actors[state.currentActorId];
+        if (!currentActor || currentActor.hp.eff.cur <= 0) {
+          aiExecutingRef.current = null;
+          return;
+        }
+
         const currentCombatant = combatState.session.data.combatants.get(state.currentActorId);
         if (currentCombatant) {
 
@@ -183,44 +183,58 @@ export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DE
             `ai-turn-${state.currentActorId}`,
           );
 
-          console.log('🤖 AI-generated plan for', state.currentActorId, ':', aiPlan.length, 'actions');
-          aiPlan.forEach((action, i) => {
-            console.log(`  ${i + 1}. ${action.command} (AP: ${action.cost?.ap || 0})`, action.args);
-          });
+          // Execute the entire AI plan using the combat execution system
+          if (aiPlan.length > 0) {
+            // Use the cached session API to ensure state consistency
+            if (!sessionApiRef.current) {
+              throw new Error('Expected cached session API to be available for AI execution');
+            }
+            const combatantHook = sessionApiRef.current.getCombatantApi(state.currentActorId);
 
-            // Execute the entire AI plan using the combat execution system
-            if (aiPlan.length > 0) {
-              // Use the session API to get combatant hook with proper turn advancement
-              const sessionApi = deps.createCombatSessionApi(
-                state.initialContext,
-                TEST_PLACE_ID,
-                combatState.session.id
-              );
-              const combatantHook = sessionApi.getCombatantApi(state.currentActorId);
+            const intentExecutor = deps.createIntentExecutionApi(
+              state.initialContext,
+              combatState.session,
+              combatantHook
+            );
 
-              const intentExecutor = deps.createIntentExecutionApi(
-                state.initialContext,
-                combatState.session,
-                combatantHook
-              );
+            const actionEvents = intentExecutor.executeActions(aiPlan, `ai-plan-${state.currentActorId}`);
 
-            console.log('🎯 Executing AI plan...');
-            const events = intentExecutor.executeActions(aiPlan, `ai-plan-${state.currentActorId}`);
-            console.log('✅ AI plan executed:', events.length, 'events generated');
+            // Check if turn should advance after AI actions (critical for dead combatant skipping!)
+            const turnAdvancementEvents = intentExecutor.checkAndAdvanceTurn(`ai-turn-advance-${state.currentActorId}`);
+
+            // Combine all events
+            const allEvents = [...actionEvents, ...turnAdvancementEvents];
 
             // Add events to combat log
-            handleLogEvents(events);
+            handleLogEvents(allEvents);
 
-            // Check for turn advancement in the AI-generated events
-            const turnStartEvent = events.find(event => event.type === EventType.COMBAT_TURN_DID_START);
+            // CRITICAL: Synchronize React UI state with authoritative combat state
+            // This ensures the UI reflects the actual actor HP after combat events
+            actions.syncActorsFromContext();
+
+            // Check for turn advancement in all events (including turn advancement events)
+            const turnStartEvent = allEvents.find(event => event.type === EventType.COMBAT_TURN_DID_START);
             if (turnStartEvent && turnStartEvent.actor !== state.currentActorId) {
               actions.handleTurnAdvance(turnStartEvent.actor!);
             }
 
-            // Process the events to update the UI state
-            events.forEach(event => {
-              console.log('📋 Event:', event.type, event.payload);
-            });
+            // Check if the current actor died during their own actions - if so, force turn advancement
+            const currentActorDied = allEvents.some((event: any) =>
+              event.type === EventType.COMBATANT_DID_DIE && event.actor === state.currentActorId
+            );
+            if (currentActorDied && !turnStartEvent) {
+              // Force turn advancement by calling the session API directly
+              if (sessionApiRef.current) {
+                const advancementEvents = sessionApiRef.current.advanceTurn(`force-advance-${state.currentActorId}`);
+                handleLogEvents(advancementEvents);
+
+                // Check for new turn start event
+                const newTurnStartEvent = advancementEvents.find((event: any) => event.type === EventType.COMBAT_TURN_DID_START);
+                if (newTurnStartEvent) {
+                  actions.handleTurnAdvance(newTurnStartEvent.actor!);
+                }
+              }
+            }
           }
         }
 
@@ -478,17 +492,23 @@ export function createCombatSandboxTool(deps: CombatSandboxToolDependencies = DE
                 </div>
               </div>
             ) : (
-              combatants.map(combatant => (
-                <CombatantCard
-                  key={combatant.actorId}
-                  combatant={combatant}
-                  actor={state.actors[combatant.actorId]}
-                  isActive={combatant.actorId === state.currentActorId}
-                  isAiControlled={state.aiControlled[combatant.actorId] || false}
-                  onAiToggle={actions.handleAiToggle}
-                  isAiThinking={state.aiThinking === combatant.actorId}
-                />
-              ))
+              combatants.map(combatant => {
+                const actor = state.actors[combatant.actorId];
+                const weaponSchema = state.initialContext?.equipmentApi?.getEquippedWeaponSchema(actor) || null;
+
+                return (
+                  <CombatantCard
+                    key={combatant.actorId}
+                    combatant={combatant}
+                    actor={actor}
+                    isActive={combatant.actorId === state.currentActorId}
+                    isAiControlled={state.aiControlled[combatant.actorId] || false}
+                    onAiToggle={actions.handleAiToggle}
+                    isAiThinking={state.aiThinking === combatant.actorId}
+                    weaponSchema={weaponSchema}
+                  />
+                );
+              })
             )}
           </div>
 

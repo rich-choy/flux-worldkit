@@ -41,7 +41,7 @@ export type CombatScenarioActorData = {
   weapon: WeaponSchemaURN;
   skills: {
     'flux:skill:evasion'?: number;
-    'flux:skill:weapon:martial'?: number;
+    'flux:skill:weapon:melee'?: number;
   };
 };
 
@@ -104,6 +104,9 @@ export type CombatSandboxActions = {
 
   // Turn management
   handleTurnAdvance: (newActorId: ActorURN) => void;
+
+  // State synchronization
+  syncActorsFromContext: () => void;
 };
 
 const createActorWithShellStats = (
@@ -112,9 +115,19 @@ const createActorWithShellStats = (
   weapon: WeaponSchema,
   stats: ActorShellStatsInput,
   location: PlaceURN,
-
+  skills: Record<SkillURN, number> = {}
 ) => {
   const { pow = 10, fin = 10, res = 10, int = 10, per = 10, mem = 10 } = stats;
+
+  // Convert skill ranks to skill state objects
+  const skillStates: Record<SkillURN, any> = {};
+  for (const [skillUrn, rank] of Object.entries(skills)) {
+    skillStates[skillUrn as SkillURN] = {
+      xp: 0,
+      pxp: 0,
+      rank: rank
+    };
+  }
 
   const actor = createActor({
     id,
@@ -128,6 +141,7 @@ const createActorWithShellStats = (
       [ActorStat.PER]: { nat: per, eff: per, mods: {} },
       [ActorStat.MEM]: { nat: mem, eff: mem, mods: {} },
     },
+    skills: skillStates,
     equipment: {
       [HUMAN_ANATOMY.RIGHT_HAND]: {
         [TEST_WEAPON_ENTITY_URN]: 1,
@@ -177,7 +191,7 @@ export function useCombatSandbox(
         weapon: defaultWeapon,
         skills: {
           'flux:skill:evasion': 0,
-          'flux:skill:weapon:martial': 0
+          'flux:skill:weapon:melee': 0
         }
       },
       [bobId]: {
@@ -186,7 +200,7 @@ export function useCombatSandbox(
         weapon: defaultWeapon,
         skills: {
           'flux:skill:evasion': 0,
-          'flux:skill:weapon:martial': 0
+          'flux:skill:weapon:melee': 0
         }
       }
     }
@@ -229,7 +243,6 @@ export function useCombatSandbox(
     try {
       const context = createTransformerContext();
       const weaponMap = context.schemaManager.getSchemasOfType<WeaponSchemaURN, WeaponSchema>('weapon');
-      console.log('🔍 Available weapons:', [...weaponMap.values()]);
       // Set up available weapons - for now just the test weapon, but this will expand
       setAvailableWeapons(weaponMap);
 
@@ -248,14 +261,16 @@ export function useCombatSandbox(
         'Alice',
         aliceWeapon,
         scenarioData.actors[aliceId]?.stats || { pow: 10, fin: 10, res: 10, per: 10 },
-        testPlaceId
+        testPlaceId,
+        scenarioData.actors[aliceId]?.skills || {}
       );
       const bob = createActorWithShellStats(
         bobId,
         'Bob',
         bobWeapon,
         scenarioData.actors[bobId]?.stats || { pow: 10, fin: 10, res: 10 },
-        testPlaceId
+        testPlaceId,
+        scenarioData.actors[bobId]?.skills || {}
       );
 
       // Ensure actors start with full HP after stat restoration
@@ -300,12 +315,10 @@ export function useCombatSandbox(
 
       // Add all active actors to the combat session
       const activeActorIds = Object.keys(initialContext.world.actors) as ActorURN[];
-      console.log('🎯 Adding combatants to session:', activeActorIds);
 
       for (const actorId of activeActorIds) {
         const team = getTeamFromActorId(actorId);
         addCombatant(actorId, team);
-        console.log(`  ✅ Added ${getNameFromActorId(actorId)} to Team ${team}`);
       }
 
       // Set up targeting - each combatant targets a random enemy from the opposing team
@@ -342,8 +355,6 @@ export function useCombatSandbox(
       setInitialSession(combatSession);
       setCurrentActorId(firstActorId); // Use computed initiative order
       setEventCount(eventsAfter);
-
-      console.log('🚀 Combat started with initiative order:', Array.from(combatSession.data.initiative.keys()));
 
     } catch (error) {
       console.error('❌ Combat start failed:', error);
@@ -406,9 +417,17 @@ export function useCombatSandbox(
   }, [isInSetupPhase, initialContext, setScenarioData]);
 
   const handleTurnAdvance = useCallback((newActorId: ActorURN) => {
-    console.log('🎮 handleTurnAdvance called:', { from: currentActorId, to: newActorId });
+    // If advancing to a dead actor, log a warning but still update the state
+    // The turn manager should have already handled skipping dead actors
+    if (initialContext && initialContext.world.actors[newActorId]) {
+      const newActor = initialContext.world.actors[newActorId];
+      if (newActor.hp.eff.cur <= 0) {
+        throw new Error('Turn advanced to dead actor');
+      }
+    }
+
     setCurrentActorId(newActorId);
-  }, [currentActorId]);
+  }, [currentActorId, initialContext]);
 
   // Handle AI toggle for combatants
   const handleAiToggle = useCallback((actorId: ActorURN, enabled: boolean) => {
@@ -511,25 +530,28 @@ export function useCombatSandbox(
 
     // Check if actor already exists
     if (initialContext.world.actors[actorId]) {
-      console.warn(`Actor ${actorName} already exists`);
-      return;
+      throw new Error(`Actor ${actorName} already exists`);
     }
 
     // Get default weapon schema
     const weaponSchema = availableWeapons.get(DEFAULT_WEAPON_SCHEMA_URN);
     if (!weaponSchema) {
-      console.error(`Default weapon schema not found: ${DEFAULT_WEAPON_SCHEMA_URN}`);
-      return;
+      throw new Error(`Default weapon schema not found: ${DEFAULT_WEAPON_SCHEMA_URN}`);
     }
 
-    // Create the actor with default stats
+    // Create the actor with default stats and skills
     const defaultStats = { pow: 10, fin: 10, res: 10, per: 10 };
+    const defaultSkills = {
+      'flux:skill:evasion': 0,
+      'flux:skill:weapon:melee': 0
+    };
     const actor = createActorWithShellStats(
       actorId,
       actorName,
       weaponSchema,
       defaultStats,
-      testPlaceId
+      testPlaceId,
+      defaultSkills
     );
 
     // Add actor to world context
@@ -550,10 +572,10 @@ export function useCombatSandbox(
           stats: defaultStats,
           aiControlled: true, // Optional combatants are AI-controlled by default
           weapon: DEFAULT_WEAPON_SCHEMA_URN,
-          skills: {
-            'flux:skill:evasion': 0,
-            'flux:skill:weapon:martial': 0
-          }
+        skills: {
+          'flux:skill:evasion': 0,
+          'flux:skill:weapon:melee': 0
+        }
         }
       }
     }));
@@ -564,7 +586,6 @@ export function useCombatSandbox(
       [actorId]: true
     }));
 
-    console.log(`✅ Added ${actorName} to Team ${team}`);
   }, [isInSetupPhase, initialContext, availableWeapons, testPlaceId, setActors, setScenarioData, setAiControlled]);
 
   // Function to remove optional combatants during setup phase
@@ -576,8 +597,7 @@ export function useCombatSandbox(
 
     // Check if actor exists
     if (!initialContext.world.actors[actorId]) {
-      console.warn(`Actor ${actorName} does not exist`);
-      return;
+      throw new Error(`Actor ${actorName} does not exist`);
     }
 
     // Remove from world context
@@ -607,7 +627,6 @@ export function useCombatSandbox(
       return newAiControlled;
     });
 
-    console.log(`❌ Removed ${actorName}`);
   }, [isInSetupPhase, initialContext, setActors, setScenarioData, setAiControlled]);
 
   // Helper functions to get current actor data
@@ -627,6 +646,18 @@ export function useCombatSandbox(
     const actorData = scenarioData.actors[actorId];
     return actorData?.skills || {};
   }, [scenarioData]);
+
+  // Synchronize React UI state with authoritative combat state
+  const syncActorsFromContext = useCallback(() => {
+    if (!initialContext) return;
+
+    const updatedActors: Record<string, any> = {};
+    for (let actorId in initialContext.world.actors) {
+      const actor = initialContext.world.actors[actorId as ActorURN];
+      updatedActors[actorId] = { ...actor }; // Create a new reference to trigger React re-render
+    }
+    setActors(updatedActors);
+  }, [initialContext]);
 
   // Combine state and actions
   const state: CombatSandboxState = useMemo(() => ({
@@ -654,7 +685,8 @@ export function useCombatSandbox(
     handleAiToggle,
     setAiThinking,
     handleTurnAdvance,
-  }), [startCombat, updateActorStat, updateActorWeapon, updateActorSkill, addCombatant, removeCombatant, handleAiToggle, handleTurnAdvance]);
+    syncActorsFromContext,
+  }), [startCombat, updateActorStat, updateActorWeapon, updateActorSkill, addCombatant, removeCombatant, handleAiToggle, handleTurnAdvance, syncActorsFromContext]);
 
   return { state, actions };
 }

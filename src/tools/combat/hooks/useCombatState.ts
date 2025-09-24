@@ -96,7 +96,7 @@ export function useCombatState(
 
       return capturedEvents;
     } catch (error) {
-      console.warn('executeCommand failed:', error);
+      console.error('executeCommand failed:', error);
       return [];
     }
   }, [currentActorId, context, state.session, sessionId]);

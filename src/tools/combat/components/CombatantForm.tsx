@@ -256,13 +256,13 @@ export function CombatantForm({
             />
           </div>
 
-          {/* Martial Weapon Skill */}
+          {/* Melee Weapon Skill */}
           <div className="text-center">
-            <div className="font-medium text-xs mb-1" style={{ color: '#ebdbb2' }}>Martial Weapon</div>
+            <div className="font-medium text-xs mb-1" style={{ color: '#ebdbb2' }}>Melee Weapon</div>
             <input
               type="number"
-              value={skillValues['flux:skill:weapon:martial'] || 0}
-              onChange={handleSkillChange('flux:skill:weapon:martial')}
+              value={skillValues['flux:skill:weapon:melee'] || 0}
+              onChange={handleSkillChange('flux:skill:weapon:melee')}
               min={MIN_SKILL_RANK}
               max={MAX_SKILL_RANK}
               className="w-full text-sm font-bold text-center bg-transparent border border-gray-600 rounded px-1 py-0.5 focus:border-blue-400 focus:outline-none"

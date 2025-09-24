@@ -1,5 +1,6 @@
 import type { Actor, Combatant, ActorURN, WeaponSchema } from '@flux';
 import { CombatFacing, Team, ActorStat } from '@flux';
+import { WeaponDisplay } from './WeaponDisplay';
 
 interface CombatantCardProps {
   combatant?: Combatant | null;
@@ -13,8 +14,8 @@ interface CombatantCardProps {
   isAiControlled?: boolean;
   onAiToggle?: (actorId: ActorURN, enabled: boolean) => void;
   isAiThinking?: boolean;
-  // Context for weapon schema access
-  context?: any;
+  // Weapon schema (resolved externally)
+  weaponSchema?: WeaponSchema | null;
 }
 
 function formatJoules(energy: number) {
@@ -31,7 +32,7 @@ export function CombatantCard({
   isAiControlled = false,
   onAiToggle,
   isAiThinking = false,
-  context
+  weaponSchema
 }: CombatantCardProps) {
   // Use team from combatant if available, otherwise use passed team prop
   const actualTeam = combatant?.team || team || Team.BRAVO;
@@ -60,33 +61,6 @@ export function CombatantCard({
   const actorName = actor?.name || (combatant?.actorId || actor?.id)?.split(':').pop() || 'Unknown';
   const teamName = actualTeam === Team.BRAVO ? 'Red Team' : 'Blue Team';
 
-  // Create APIs for actor data access
-  const inventoryApi = context?.inventoryApi;
-  const equipmentApi = context?.equipmentApi;
-
-  // Get equipped weapon information using the equipment API
-  const getEquippedWeaponInfo = () => {
-    if (!equipmentApi || !context?.schemaManager) return null;
-
-    const equippedWeaponId = equipmentApi.getEquippedWeapon();
-    if (!equippedWeaponId) return null;
-
-    const inventoryItem = inventoryApi?.getItem(equippedWeaponId);
-    if (!inventoryItem) return null;
-
-    const schema = context.schemaManager.getSchema(inventoryItem.schema) as WeaponSchema;
-    if (schema) {
-      return {
-        schemaUrn: inventoryItem.schema,
-        range: schema.range
-      };
-    }
-
-    return null;
-  };
-
-  const weaponInfo = getEquippedWeaponInfo();
-
   // Handle stat changes during setup
   const handleStatChange = (stat: ActorStat) => (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = parseInt(e.target.value, 10);
@@ -106,6 +80,7 @@ export function CombatantCard({
   const currentHp = actor.hp.eff.cur;
   const maxHp = actor.hp.eff.max;
   const healthPercentage = maxHp > 0 ? currentHp / maxHp : 0;
+  const isDead = currentHp <= 0;
 
   return (
     <div
@@ -120,11 +95,11 @@ export function CombatantCard({
       <div className="mb-3">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="font-semibold text-lg" style={{ color: colors.text }}>
-              {actorName}
+            <h3 className="font-semibold text-lg" style={{ color: isDead ? '#fb4934' : colors.text }}>
+              {actorName} {isDead ? '💀' : ''}
             </h3>
             <p className="text-sm" style={{ color: '#a89984' }}>
-              {teamName}{isActive ? ' - Active Turn' : ''}
+              {isDead ? 'DEAD' : `${teamName}${isActive ? ' - Active Turn' : ''}`}
             </p>
           </div>
 
@@ -138,19 +113,22 @@ export function CombatantCard({
                 type="checkbox"
                 checked={isAiControlled}
                 onChange={handleAiToggle}
+                disabled={isDead}
                 className="w-4 h-4 rounded border-2 focus:ring-2 focus:ring-offset-0 transition-colors"
                 style={{
                   accentColor: colors.border,
-                  borderColor: '#504945'
+                  borderColor: '#504945',
+                  opacity: isDead ? 0.5 : 1
                 }}
               />
               <span
                 className="text-sm font-medium select-none"
                 style={{
-                  color: isAiControlled ? colors.text : '#a89984'
+                  color: isDead ? '#665c54' : (isAiControlled ? colors.text : '#a89984'),
+                  opacity: isDead ? 0.5 : 1
                 }}
               >
-                {isAiThinking ? 'AI Thinking...' : 'AI'}
+                {isDead ? 'AI (Dead)' : (isAiThinking ? 'AI Thinking...' : 'AI')}
               </span>
             </label>
           </div>
@@ -208,6 +186,9 @@ export function CombatantCard({
           )}
         </div>
       </div>
+
+      {/* Weapon information - show prominently after stats */}
+      <WeaponDisplay weaponSchema={weaponSchema} />
 
       {/* Hit Points - always show */}
       <div className="mb-3">
@@ -290,20 +271,6 @@ export function CombatantCard({
         </div>
       )}
 
-      {/* Weapon information - show if weapon is equipped */}
-      {weaponInfo && (
-        <div className="text-xs space-y-1 mb-3" style={{ color: '#a89984' }}>
-          <div>
-            <span className="font-medium">Weapon:</span> {weaponInfo.schemaUrn.split(':').pop()}
-          </div>
-          <div>
-            <span className="font-medium">Range:</span> {weaponInfo.range.optimal}m optimal
-            {weaponInfo.range.max && weaponInfo.range.max !== weaponInfo.range.optimal && (
-              <span>, {weaponInfo.range.max}m max</span>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Setup phase info */}
       {isEditable && !combatant && (
